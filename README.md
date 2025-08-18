@@ -10,18 +10,6 @@ Tujuan utama adalah menyediakan endpoint sederhana yang dapat dikembangkan menja
 - Modul `services` dengan endpoint `/data/test` untuk pengecekan layanan data.
 - Struktur project modular (dengan `APIRouter`) sehingga mudah dikembangkan.
 
----
-
-## 📂 Struktur Project
-penelitian-lab-fti-ml-api/
-│── main.py # Entry point aplikasi FastAPI
-│── requirements.txt # Daftar dependensi Python
-│── services/ # Modul layanan (routing terpisah)
-│ │── init.py
-│ │── data_routes.py # Router khusus data
-│── venv/ # Virtual environment (jangan di-commit ke repo)
-│── .gitignore
-
 ## 🛠️ Cara Menjalankan
 
 ### 1. Clone Repository
