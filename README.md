@@ -14,7 +14,7 @@ Tujuan utama adalah menyediakan endpoint sederhana yang dapat dikembangkan menja
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/username/penelitian-lab-fti-ml-api.git
+git clone https://github.com/Big-Data-Laboratory-UMN/penelitian-lab-fti-ml-api.git
 cd penelitian-lab-fti-ml-api
 ```
 
