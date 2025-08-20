@@ -1,4 +1,4 @@
-# 📌 Penelitian FTI ML API
+# 📌 Penelitian FTI API
 
 Proyek ini adalah contoh implementasi **FastAPI** dengan struktur modular untuk layanan API.  
 Tujuan utama adalah menyediakan endpoint sederhana yang dapat dikembangkan menjadi layanan machine learning atau data processing.
