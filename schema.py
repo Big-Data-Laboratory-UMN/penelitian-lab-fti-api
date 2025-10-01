@@ -1,3 +1,4 @@
+from typing import List
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -10,3 +11,7 @@ class Role(BaseModel):
 
     class Config:
         orm_mode = True
+
+class RoleResponse(BaseModel):
+    data: List[Role]
+    total: int

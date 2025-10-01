@@ -1,19 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException # type: ignore
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 import schema
 from ..controller import rolesController
 from database import SessionLocal
 
-# Di sini kita definisikan prefix dan tags langsung
-# Ini bikin router kita jadi "self-contained" atau mandiri
 router = APIRouter(
     prefix="/roles",
     tags=["Roles"]
 )
 
-# --- Dependency untuk Database Session ---
 def get_db():
     db = SessionLocal()
     try:
@@ -21,11 +18,22 @@ def get_db():
     finally:
         db.close()
 
-# Path di sini cukup "/", karena prefix "/roles" sudah didefinisikan di atas
-@router.get("/", response_model=List[schema.Role])
-def get_all_roles(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    roles = rolesController.get_roles(db=db, skip=skip, limit=limit)
-    return roles
+@router.get("/", response_model=schema.RoleResponse)
+def read_all_roles(
+    skip: int = 0, 
+    limit: int = 10, 
+    search: Optional[str] = None, 
+    roleName: Optional[str] = None,
+    roleCode: Optional[str] = None,
+    roleDesc: Optional[str] = None,
+    status: Optional[int] = None,
+    db: Session = Depends(get_db)
+):
+    roles_data = rolesController.get_roles(
+        db=db, skip=skip, limit=limit, search=search,
+        vname=roleName, vcode=roleCode, vdesc=roleDesc, nstatus=status
+    )
+    return roles_data
 
 
 @router.get("/{role_id}", response_model=schema.Role)

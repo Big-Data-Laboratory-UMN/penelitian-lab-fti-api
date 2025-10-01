@@ -1,2 +1,9 @@
 fastapi
 uvicorn
+SQLAlchemy
+alembic
+mysql-connector-python
+pandas
+numpy
+python-dotenv
+pydantic-settings
