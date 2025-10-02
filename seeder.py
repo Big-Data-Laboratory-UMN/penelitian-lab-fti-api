@@ -1,5 +1,5 @@
-from database import SessionLocal
-from models import Role 
+from services.database import SessionLocal
+from services.models import Role 
 
 def seed_data():
     db = SessionLocal()

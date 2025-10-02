@@ -1,10 +1,10 @@
 from fastapi import FastAPI # type: ignore
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from services.api import rolesAPI
-import models
-from database import engine
+from services import models 
+from services.database import engine, Base
 
-models.Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine)
 
 origins = [
     "http://localhost:3000",
