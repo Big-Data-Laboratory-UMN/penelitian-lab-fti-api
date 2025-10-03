@@ -68,6 +68,14 @@ def get_roles(
         query = query.filter(models.Role.nstatus == nstatus)
 
     total = query.count()
+    
+    has_modified = db.query(models.Role).filter(models.Role.dmodified_at.isnot(None)).first()
+
+    if has_modified:
+        query = query.order_by(models.Role.dmodified_at.desc())
+    else:
+        query = query.order_by(models.Role.dcreated_at.desc())
+    
     data = query.offset(skip).limit(limit).all()
 
     return {"data": data, "total": total}
