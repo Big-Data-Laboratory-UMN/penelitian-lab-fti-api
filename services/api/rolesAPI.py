@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status  # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -51,28 +51,30 @@ def create_new_role(role: schema.RoleCreate, db: Session = Depends(get_db)):
     """
     Membuat role baru.
     """
-    # Cek apakah role code sudah ada
-    db_role = rolesController.get_role_by_code(db, role_code=role.vcode)
-    if db_role:
-        raise HTTPException(status_code=400, detail="Role Code already registered")
-    return rolesController.create_role(db=db, role=role)
+    try:
+        return rolesController.create_role(db=db, role=role)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-@router.put("/{role_id}", response_model=schema.Role)
-def update_existing_role(role_id: int, role: schema.RoleUpdate, db: Session = Depends(get_db)):
+@router.put("/{role_vcode}", response_model=schema.Role)
+def update_existing_role(role_vcode: str, role: schema.RoleUpdate, db: Session = Depends(get_db)):
     """
-    Mengupdate role berdasarkan ID.
+    Mengupdate role berdasarkan VCODE.
     """
-    db_role = rolesController.update_role(db=db, role_id=role_id, role=role)
-    if db_role is None:
-        raise HTTPException(status_code=404, detail="Role not found")
-    return db_role
+    try:
+        db_role = rolesController.update_role(db=db, role_vcode=role_vcode, role=role)
+        if db_role is None:
+            raise HTTPException(status_code=404, detail="Role not found")
+        return db_role
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-@router.delete("/{role_id}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_role(role_id: int, db: Session = Depends(get_db)):
+@router.delete("/{role_vcode}", status_code=status.HTTP_204_NO_CONTENT)
+def soft_delete_role(role_vcode: str, db: Session = Depends(get_db)):
     """
-    Melakukan soft delete pada role berdasarkan ID.
+    Melakukan soft delete pada role berdasarkan VCODE.
     """
-    role = rolesController.delete_role(db=db, role_id=role_id)
+    role = rolesController.delete_role(db=db, role_vcode=role_vcode)
     if role is None:
         raise HTTPException(status_code=404, detail="Role not found")
     return

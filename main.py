@@ -1,6 +1,7 @@
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from services.api import rolesAPI
+from services.api import permissionsAPI
 from services import models 
 from services.database import engine, Base
 
@@ -30,3 +31,4 @@ def root():
 
 
 app.include_router(rolesAPI.router)
+app.include_router(permissionsAPI.router)

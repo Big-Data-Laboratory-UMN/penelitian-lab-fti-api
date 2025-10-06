@@ -4,8 +4,8 @@ from sqlalchemy.sql import func
 from ..database import Base
 
 
-class Role(Base):
-    __tablename__ = "tblm_roles"
+class Permissions(Base):
+    __tablename__ = "tblm_permissions"
 
     nid = Column(Integer, primary_key=True, autoincrement=True)
 
@@ -22,7 +22,8 @@ class Role(Base):
     dmodified_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
     dsort_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+
     __table_args__ = (
-        CheckConstraint('nstatus IN (0, 1)', name='chk_roles_nstatus_values'),
-        UniqueConstraint("vcode", "vname", name="uq_roles_vcode_vname"),
+        CheckConstraint('nstatus IN (0, 1)', name='chk_permissions_nstatus_values'),
+        UniqueConstraint("vcode", "vname", name="uq_permission_vcode_vname"),
     )

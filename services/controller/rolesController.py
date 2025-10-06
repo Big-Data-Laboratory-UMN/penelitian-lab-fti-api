@@ -1,7 +1,21 @@
-from sqlalchemy import or_
+from sqlalchemy import or_, UniqueConstraint, and_
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from datetime import datetime
 from ..models import rolesModel as models
 from ..schemas import rolesSchema as schema
+
+
+def get_role_by_code_and_name(db: Session, vcode: str, vname: str):
+    """
+    Cari role berdasarkan kombinasi vcode dan vname.
+    """
+    return db.query(models.Role).filter(
+        and_(
+            models.Role.vcode == vcode,
+            models.Role.vname == vname
+        )
+    ).first()
 
 
 def get_role_by_code(db: Session, role_code: str):
@@ -10,35 +24,75 @@ def get_role_by_code(db: Session, role_code: str):
     """
     return db.query(models.Role).filter(models.Role.vcode == role_code).first()
 
+
+def get_role(db: Session, role_id: int):
+    """
+    Fungsi ini cuma fokus nyari satu role berdasarkan ID-nya.
+    """
+    return db.query(models.Role).filter(models.Role.nid == role_id).first()
+
+
 def create_role(db: Session, role: schema.RoleCreate):
     """
     Fungsi untuk membuat role baru.
+    Cegah duplikasi (vcode, vname) + race condition.
     """
     db_role = models.Role(**role.model_dump())
-    db.add(db_role)
-    db.commit()
-    db.refresh(db_role)
-    return db_role
+    db_role.dsort_at = datetime.utcnow()
 
-def update_role(db: Session, role_id: int, role: schema.RoleUpdate):
-    """
-    Fungsi untuk mengupdate role yang sudah ada.
-    """
-    db_role = get_role(db, role_id=role_id)
-    if db_role:
-        db_role.vname = role.vname
-        db_role.vdesc = role.vdesc
-        db_role.nstatus = role.nstatus
-        db_role.vmodified_by = role.vmodified_by 
-        
+    try:
+        db.add(db_role)
         db.commit()
         db.refresh(db_role)
-    return db_role
+        return db_role
+    except IntegrityError as e:
+        db.rollback()
+        error_info = str(e.orig).lower()
+        print("IntegrityError:", error_info)
+        if 'unique constraint' in error_info or 'duplicate entry' in error_info:
+            if 'vcode' in error_info and 'vname' not in error_info:
+                 raise ValueError("Failed to save. The provided Code is already in use.")
+            else:
+                 raise ValueError("Failed to save. The provided Code and Name combination is already in use.")
+        else:
+            raise ValueError("The operation could not be completed. Please review your data or refresh the page and try again.")
+
+
+def update_role(db: Session, role_vcode: str, role: schema.RoleUpdate):
+    """
+    Fungsi untuk mengupdate role yang sudah ada berdasarkan VCODE.
+    """
+    db_role = get_role_by_code(db, role_code=role_vcode)
+    if not db_role:
+        return None
+
+    db_role.vcode = role.vcode
+    db_role.vname = role.vname
+    db_role.vdesc = role.vdesc
+    db_role.nstatus = role.nstatus
+    db_role.vmodified_by = role.vmodified_by
+    db_role.dsort_at = datetime.utcnow()
+
+    try:
+        db.commit()
+        db.refresh(db_role)
+        return db_role
+    except IntegrityError as e:
+        db.rollback()
+        error_info = str(e.orig).lower()
+        print("IntegrityError:", error_info)
+        if 'unique constraint' in error_info or 'duplicate entry' in error_info:
+            if 'vcode' in error_info and 'vname' not in error_info:
+                 raise ValueError("Failed to update. The provided Code is already in use.")
+            else:
+                 raise ValueError("Failed to update. The provided Code and Name combination is already in use.")
+        else:
+            raise ValueError("The operation could not be completed. Please review your data or refresh the page and try again.")
 
 def get_roles(
-    db: Session, 
-    skip: int = 0, 
-    limit: int = 10, 
+    db: Session,
+    skip: int = 0,
+    limit: int = 10,
     search: str | None = None,
     vname: str | None = None,
     vcode: str | None = None,
@@ -68,31 +122,24 @@ def get_roles(
         query = query.filter(models.Role.nstatus == nstatus)
 
     total = query.count()
-    
-    has_modified = db.query(models.Role).filter(models.Role.dmodified_at.isnot(None)).first()
 
-    if has_modified:
-        query = query.order_by(models.Role.dmodified_at.desc())
-    else:
-        query = query.order_by(models.Role.dcreated_at.desc())
-    
+    # Urutkan berdasarkan waktu terakhir diubah/dibuat
+    query = query.order_by(models.Role.dsort_at.desc())
+
     data = query.offset(skip).limit(limit).all()
 
     return {"data": data, "total": total}
 
-def get_role(db: Session, role_id: int):
-    """
-    Fungsi ini cuma fokus nyari satu role berdasarkan ID-nya.
-    """
-    return db.query(models.Role).filter(models.Role.nid == role_id).first()
 
-def delete_role(db: Session, role_id: int):
+def delete_role(db: Session, role_vcode: str):
     """
-    Melakukan soft delete dengan mengubah nstatus menjadi 0 (Inactive).
+    Melakukan soft delete berdasarkan VCODE dengan mengubah nstatus menjadi 0 (Inactive).
     """
-    db_role = db.query(models.Role).filter(models.Role.nid == role_id).first()
+    db_role = db.query(models.Role).filter(models.Role.vcode == role_vcode).first()
     if db_role:
         db_role.nstatus = 0
+        db_role.vmodified_by = "system"
+        db_role.dsort_at = datetime.utcnow()
         db.commit()
         db.refresh(db_role)
     return db_role
@@ -100,8 +147,13 @@ def delete_role(db: Session, role_id: int):
 
 def get_all_roles_for_dropdown(db: Session):
     """
-    Mengambil semua data role yang aktif (nstatus=1) untuk dropdown, 
+    Mengambil semua data role yang aktif (nstatus=1) untuk dropdown,
     tanpa paginasi.
     """
-    roles = db.query(models.Role).filter(models.Role.nstatus == 1).order_by(models.Role.vname).all()
+    roles = (
+        db.query(models.Role)
+        .filter(models.Role.nstatus == 1)
+        .order_by(models.Role.vname)
+        .all()
+    )
     return {"data": roles}
