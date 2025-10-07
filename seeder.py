@@ -1,6 +1,5 @@
 from services.database import SessionLocal
-from services.models import Role 
-from services.models import Permissions 
+from services.models import Role, Permissions, RolePermission
 
 def seed_data():
     db = SessionLocal()
@@ -74,6 +73,65 @@ def seed_data():
             print("Seeding berhasil 'tblm_permissions'! ✅")
         else:
             print("Data sudah ada di tabel 'tblm_permissions', seeding dilewati. ⏭️")
+        
+        if db.query(RolePermission).count() == 0:
+            print("Tabel 'tblr_role_permissions' kosong, memulai proses seeding...")
+
+            roles = {r.vcode: r for r in db.query(Role).all()}
+            permissions = {p.vcode: p for p in db.query(Permissions).all()}
+
+            role_permissions_map = {
+                # Super Admin dapat semuanya
+                "SA": list(permissions.keys()),
+
+                # Admin dapat level prodi
+                "ADM": [
+                    "LAB_MANAGE_PRODI",
+                    "FACILITY_MANAGE_PRODI",
+                    "CONTENT_MANAGE_PRODI",
+                    "BOOKING_APPROVE_PRODI",
+                ],
+
+                # PIC Lab dapat level lab
+                "PIC": [
+                    "CONTENT_MANAGE_LAB",
+                    "BOOKING_APPROVE_LAB",
+                ],
+
+                # Visitor cuma bisa lihat lab
+                "VSTR": [
+                    "LAB_VIEW_ALL",
+                ],
+            }
+
+            seeding_data = []
+
+            for role_code, perm_codes in role_permissions_map.items():
+                role = roles.get(role_code)
+                if not role:
+                    print(f"⚠️ Role dengan kode {role_code} tidak ditemukan, dilewati.")
+                    continue
+
+                for perm_code in perm_codes:
+                    permission = permissions.get(perm_code)
+                    if not permission:
+                        print(f"⚠️ Permission {perm_code} tidak ditemukan, dilewati.")
+                        continue
+
+                    data = RolePermission(
+                        vcode=f"{role_code}_{perm_code}",
+                        nid_role=role.nid,
+                        nid_permission=permission.nid,
+                        vcreated_by="system-migration",
+                        nstatus=1
+                    )
+                    seeding_data.append(data)
+
+            db.add_all(seeding_data)
+            db.commit()
+            print(f"Seeding berhasil 'tblr_role_permissions'! ✅ ({len(seeding_data)} data dimasukkan)")
+        else:
+            print("Data sudah ada di tabel 'tblr_role_permissions', seeding dilewati. ⏭️")
 
     finally:
         db.close()
