@@ -29,9 +29,17 @@ def create_role_permission(db: Session, role_permission: schema.RolePermissionCr
         db.commit()
         db.refresh(db_role_permission)
         return db_role_permission
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
-        raise ValueError("Failed to save. The provided Role and Permission combination is already in use.")
+        error_info = str(e.orig).lower()
+        print("IntegrityError:", error_info)
+        if 'unique constraint' in error_info or 'duplicate entry' in error_info:
+            if 'vcode' in error_info:
+                 raise ValueError("Failed to save. The provided Code is already in use.")
+            else:
+                 raise ValueError("Failed to save. The provided Role and Permission combination is already in use.")
+        else:
+            raise ValueError("The operation could not be completed. Please review your data or refresh the page and try again.")
 
 def update_role_permission(db: Session, role_permission_vcode: str, role_permission: schema.RolePermissionUpdate):
     """
@@ -53,9 +61,17 @@ def update_role_permission(db: Session, role_permission_vcode: str, role_permiss
         db.commit()
         db.refresh(db_role_permission)
         return db_role_permission
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
-        raise ValueError("Failed to update. The provided Role and Permission combination is already in use.")
+        error_info = str(e.orig).lower()
+        print("IntegrityError:", error_info)
+        if 'unique constraint' in error_info or 'duplicate entry' in error_info:
+            if 'vcode' in error_info:
+                 raise ValueError("Failed to update. The provided Code is already in use.")
+            else:
+                 raise ValueError("Failed to save. The provided Role and Permission combination is already in use.")
+        else:
+            raise ValueError("The operation could not be completed. Please review your data or refresh the page and try again.")
 
 def get_roles_permissions(
     db: Session,
