@@ -30,6 +30,10 @@ class RolePermission(BaseModel):
     nid_role: int
     nid_permission: int
     nstatus: int
+    dcreated_at: Optional[datetime] = None
+    vcreated_by: Optional[str] = None
+    dmodified_at: Optional[datetime] = None
+    vmodified_by: Optional[str] = None
 
     class Config:
         from_attributes = True 
