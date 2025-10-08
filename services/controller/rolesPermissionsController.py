@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import rolesPermissionsModel as models
+from ..models import rolesModel, permissionsModel # <-- IMPORT TAMBAHAN
 from ..schemas import rolesPermissionsSchema as schema
 
 def get_role_permission_by_code(db: Session, vcode: str):
@@ -78,23 +79,56 @@ def get_roles_permissions(
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,
-    nstatus: int | None = None
+    nstatus: int | None = None,
+    nid_role: int | None = None, 
+    nid_permission: int | None = None,
+    vcode: str | None = None,
 ):
     """
     Mengambil data relasi role-permission dengan paginasi, filter, dan sorting.
     """
-    query = db.query(models.RolePermission)
+    query = db.query(
+        models.RolePermission,
+        rolesModel.Role.vname.label("role_name"),
+        permissionsModel.Permissions.vname.label("permission_name")
+    ).join(
+        rolesModel.Role, models.RolePermission.nid_role == rolesModel.Role.nid, isouter=True
+    ).join(
+        permissionsModel.Permissions, models.RolePermission.nid_permission == permissionsModel.Permissions.nid, isouter=True
+    )
 
     if search:
-        query = query.filter(models.RolePermission.vcode.ilike(f"%{search}%"))
+        search_filter = or_(
+            models.RolePermission.vcode.ilike(f"%{search}%"),
+            rolesModel.Role.vname.ilike(f"%{search}%"),
+            permissionsModel.Permissions.vname.ilike(f"%{search}%")
+        )
+        query = query.filter(search_filter)
+        
+        
     if nstatus is not None:
         query = query.filter(models.RolePermission.nstatus == nstatus)
+    if nid_role is not None:
+        query = query.filter(models.RolePermission.nid_role == nid_role)
+    if nid_permission is not None: 
+        query = query.filter(models.RolePermission.nid_permission == nid_permission)
+    if vcode:
+        query = query.filter(models.RolePermission.vcode.ilike(f"%{vcode}%"))
 
     total = query.count()
     query = query.order_by(models.RolePermission.dsort_at.desc())
-    data = query.offset(skip).limit(limit).all()
+    
+    results = query.offset(skip).limit(limit).all()
+    
+    data = []
+    for mapping, role_name, permission_name in results:
+        mapping_data = mapping.__dict__
+        mapping_data['role_name'] = role_name or '(Name Not Found)'
+        mapping_data['permission_name'] = permission_name or '(Name Not Found)'
+        data.append(mapping_data)
 
     return {"data": data, "total": total}
+
 
 def delete_role_permission(db: Session, role_permission_vcode: str):
     """

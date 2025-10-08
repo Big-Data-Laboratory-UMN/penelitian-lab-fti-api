@@ -24,13 +24,18 @@ def read_all_roles_permissions(
     limit: int = 10,
     search: Optional[str] = None,
     status: Optional[int] = None,
+    nid_role: Optional[int] = None, 
+    nid_permission: Optional[int] = None,
+    mappingCode: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """
     Mengambil semua data relasi role-permission dengan paginasi dan filter.
     """
     roles_permissions_data = rolesPermissionsController.get_roles_permissions(
-        db=db, skip=skip, limit=limit, search=search, nstatus=status
+        db=db, skip=skip, limit=limit, search=search, nstatus=status,nid_role=nid_role,
+        nid_permission=nid_permission,
+        vcode=mappingCode
     )
     return roles_permissions_data
 
