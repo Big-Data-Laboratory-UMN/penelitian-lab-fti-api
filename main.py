@@ -1,8 +1,10 @@
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
-from services.api import rolesAPI, permissionsAPI, rolesPermissionsAPI
+from services.api import rolesAPI, permissionsAPI, rolesPermissionsAPI, usersAPI
 from services import models 
-from services.database import engine, Base
+from contextlib import asynccontextmanager
+from services.database import engine, Base, SessionLocal
+from services.controller import usersController
 
 Base.metadata.create_all(bind=engine)
 
@@ -10,10 +12,23 @@ origins = [
     "http://localhost:3000",
 ]
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    usersController.start_scheduler(app)
+    print("🔄 Lifespan started, scheduler initialized.")
+    yield
+    # Shutdown
+    print("🛑 Lifespan shutting down, cleaning up scheduler.")
+    if hasattr(app.state, "scheduler"):
+        app.state.scheduler.shutdown(wait=False)
+
+
 app = FastAPI(
     title="FTI Lab Booking API",
     description="API untuk sistem peminjaman ruangan lab di FTI.",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan 
 )
 
 app.add_middleware(
@@ -32,3 +47,4 @@ def root():
 app.include_router(rolesAPI.router)
 app.include_router(permissionsAPI.router)
 app.include_router(rolesPermissionsAPI.router)
+app.include_router(usersAPI.router)

@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path
+project_root = Path(__file__).resolve().parent.parent
+
+sys.path.append(str(project_root))
+
 from services.database import SessionLocal
 from services.models import Role, Permissions, RolePermission
 
@@ -129,7 +135,7 @@ def seed_data():
 
             db.add_all(seeding_data)
             db.commit()
-            print(f"Seeding berhasil 'tblr_role_permissions'! ✅ ({len(seeding_data)} data dimasukkan)")
+            print(f"Seeding berhasil 'tblr_role_permissions'! ✅")
         else:
             print("Data sudah ada di tabel 'tblr_role_permissions', seeding dilewati. ⏭️")
 

@@ -1,9 +1,18 @@
+# --- Core Framework ---
 fastapi
-uvicorn
+uvicorn[standard]
+
+# --- Database ---
 SQLAlchemy
 alembic
-mysql-connector-python
-pandas
-numpy
+PyMySQL
+
+# --- Security ---
+passlib[argon2,bcrypt]
+
+# --- Configuration & Utilities ---
 python-dotenv
-pydantic-settings
+pydantic
+fastapi-mail 
+pytz
+fastapi-apscheduler
