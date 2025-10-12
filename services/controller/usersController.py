@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta
 import pytz
 
-from fastapi_apscheduler import scheduler
+from fastapi_apscheduler import scheduler # type: ignore
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -180,8 +180,8 @@ def schedule_user_expiry(sched, db_factory, user_id: int, token_id: int, expires
 
     # Logika diubah: parameter 'expires_at' diabaikan.
     # Waktu expire sekarang di-set fix 24 jam dari sekarang.
-    # delay = 24 * 60 * 60  # 24 jam dalam detik
-    delay = 60 # 1 menit untuk testing
+    delay = 24 * 60 * 60  # 24 jam dalam detik
+    # delay = 60 # 1 menit untuk testing
 
     # Menggunakan waktu sekarang ditambah delay 24 jam untuk menentukan waktu eksekusi
     now = datetime.now(jakarta_tz)
