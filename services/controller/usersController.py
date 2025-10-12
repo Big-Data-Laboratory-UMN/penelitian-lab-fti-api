@@ -163,7 +163,7 @@ async def resend_activation_email(db: Session, user_vcode: str, app=None, db_fac
             expires_at=expires_at
         )
 
-    print(f"🔁 Resent activation email to {user.vemail}, expiry in 60s.")
+    print(f"🔁 Resent activation email to {user.vemail}, expiry in 24 hours.")
     return {"message": "Activation email has been resent successfully."}
 
 
@@ -172,14 +172,19 @@ async def resend_activation_email(db: Session, user_vcode: str, app=None, db_fac
 # ======================
 
 def schedule_user_expiry(sched, db_factory, user_id: int, token_id: int, expires_at: datetime):
-    """Jadwalkan auto-expire untuk satu user tertentu, dengan countdown real-time (debug)."""
+    """
+    Jadwalkan auto-expire untuk satu user tertentu (fixed 24 jam), 
+    dengan countdown real-time (debug).
+    """
     import threading, sys, time
 
-    now = datetime.now(jakarta_tz)
-    delay = (expires_at - now).total_seconds()
-    if delay <= 0:
-        delay = 1
+    # Logika diubah: parameter 'expires_at' diabaikan.
+    # Waktu expire sekarang di-set fix 24 jam dari sekarang.
+    # delay = 24 * 60 * 60  # 24 jam dalam detik
+    delay = 60 # 1 menit untuk testing
 
+    # Menggunakan waktu sekarang ditambah delay 24 jam untuk menentukan waktu eksekusi
+    now = datetime.now(jakarta_tz)
     run_time = now + timedelta(seconds=delay)
 
     @sched.scheduled_job("date", run_date=run_time)
@@ -188,16 +193,18 @@ def schedule_user_expiry(sched, db_factory, user_id: int, token_id: int, expires
         try:
             user = db.query(models.User).filter(models.User.nid == user_id).first()
             token = db.query(tokenModel.Token).filter(tokenModel.Token.nid == token_id).first()
+            
+            # Cek jika user masih dalam status menunggu aktivasi (nstatus == 2)
             if user and user.nstatus == 2:
-                user.nstatus = 3
+                user.nstatus = 3  # Set status ke expired
                 user.vmodified_by = "system"
                 if token:
-                    token.nstatus = 0
+                    token.nstatus = 0 # Non-aktifkan token
                 db.commit()
-                sys.stdout.write(f"\n[EXPIRE] User {user.vemail} automatically expired after {round(delay)}s.\n")
+                sys.stdout.write(f"\n[EXPIRE] User {user.vemail} otomatis expired setelah 24 jam.\n")
                 sys.stdout.flush()
             else:
-                print(f"[SKIP] User {user_id} already activated before expiry.")
+                print(f"[SKIP] User {user_id} sudah diaktivasi atau status berubah sebelum 24 jam.")
         finally:
             db.close()
 
@@ -205,15 +212,19 @@ def schedule_user_expiry(sched, db_factory, user_id: int, token_id: int, expires
     def countdown_display():
         total = int(delay)
         while total > 0:
+            # Konversi total detik ke format HH:MM:SS
             mins, secs = divmod(total, 60)
-            time_str = f"{mins:02d}:{secs:02d}"
-            sys.stdout.write(f"\r[COUNTDOWN] UserID={user_id} | expires in {time_str} ({total}s) ")
+            hours, mins = divmod(mins, 60)
+            time_str = f"{hours:02d}:{mins:02d}:{secs:02d}"
+            
+            sys.stdout.write(f"\r[COUNTDOWN] UserID={user_id} | expires in {time_str} ")
             sys.stdout.flush()
             time.sleep(1)
             total -= 1
-        sys.stdout.write(f"\r[COUNTDOWN] UserID={user_id} expired trigger reached.{' ' * 20}\n")
+        sys.stdout.write(f"\r[COUNTDOWN] UserID={user_id} pemicu ekspirasi 24 jam tercapai.{' ' * 20}\n")
         sys.stdout.flush()
 
+    # Jalankan countdown di thread terpisah agar tidak memblokir proses utama
     t = threading.Thread(target=countdown_display, daemon=True)
     t.start()
 

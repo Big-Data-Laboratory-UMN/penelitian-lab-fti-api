@@ -21,7 +21,7 @@ class User(Base):
     vphone = Column(String(20), nullable=True)
     vemail = Column(String(255), unique=True, index=True, nullable=False)
     vaddress = Column(Text, nullable=True)
-    vinstitution = Column(String(255), nullable=True)
+    # vinstitution = Column(String(255), nullable=True)
     
     vpassword = Column(String(255), nullable=True)
 

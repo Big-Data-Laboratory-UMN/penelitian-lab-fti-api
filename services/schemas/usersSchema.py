@@ -11,7 +11,7 @@ class UserBase(BaseModel):
     vemail: EmailStr
     vphone: Optional[str] = None
     vaddress: Optional[str] = None
-    vinstitution: Optional[str] = None
+    # vinstitution: Optional[str] = None
 
 class UserCreateByAdmin(UserBase):
     """
