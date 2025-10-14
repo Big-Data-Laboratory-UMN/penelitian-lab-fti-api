@@ -40,7 +40,7 @@ async def send_activation_email(
     Returns dict with status and message.
     """
     
-    activation_link = f"{frontend_url}/set-initial-password/{activation_token}"
+    activation_link = f"{frontend_url}/auth/set-initial-password/{activation_token}"
     
     msg = MIMEMultipart('alternative')
     msg['Subject'] = 'Aktivasi Akun Anda'
