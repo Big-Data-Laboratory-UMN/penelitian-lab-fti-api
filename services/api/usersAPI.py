@@ -91,9 +91,15 @@ def get_user_by_id(user_id: int, db: Session = Depends(get_db)):
     return user
 
 @router.put("/{user_vcode}", response_model=schema.User)
-def update_existing_user(user_vcode: str, user: schema.UserUpdate, db: Session = Depends(get_db)):
+async def update_existing_user(user_vcode: str, user: schema.UserUpdate, request: Request, db: Session = Depends(get_db)):
     try:
-        db_user = usersController.update_user(db=db, user_vcode=user_vcode, user=user)
+        db_user = await usersController.update_user(
+            db=db, 
+            user_vcode=user_vcode, 
+            user=user,
+            app=request.app,
+            db_factory=SessionLocal 
+        )
         if db_user is None:
             raise HTTPException(status_code=404, detail="User not found")
         return db_user
@@ -113,3 +119,11 @@ def validate_activation_token(token: str, db: Session = Depends(get_db)):
     if not result["valid"]:
         raise HTTPException(status_code=404, detail=result["reason"])
     return result
+
+@router.get("/verify-email-change/{token}", response_model=schema.User)
+def verify_user_email_change(token: str, db: Session = Depends(get_db)):
+    try:
+        updated_user = usersController.verify_and_update_email(db=db, token=token)
+        return updated_user
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

@@ -1,8 +1,8 @@
 """Initial migration, create all tables
 
-Revision ID: 5b088dac669a
+Revision ID: 705af1930100
 Revises: 
-Create Date: 2025-10-12 00:18:52.500044
+Create Date: 2025-10-14 13:48:24.020157
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '5b088dac669a'
+revision: str = '705af1930100'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -60,7 +60,6 @@ def upgrade() -> None:
     sa.Column('vphone', sa.String(length=20), nullable=True),
     sa.Column('vemail', sa.String(length=255), nullable=False),
     sa.Column('vaddress', sa.Text(), nullable=True),
-    sa.Column('vinstitution', sa.String(length=255), nullable=True),
     sa.Column('vpassword', sa.String(length=255), nullable=True),
     sa.Column('nstatus', sa.Integer(), nullable=False, comment='Status User: 0=Inactive, 1=Active, 2=Pending, 3=Expired'),
     sa.Column('vcreated_by', sa.String(length=255), nullable=False),
@@ -94,8 +93,9 @@ def upgrade() -> None:
     op.create_table('tbls_token',
     sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('nid_user', sa.Integer(), nullable=False, comment='Foreign key ke tabel user (tbls_users)'),
-    sa.Column('ntoken_type', sa.Integer(), nullable=False, comment='Tipe token: 1=Aktivasi, 2=Sesi Login, 3=Reset Password'),
+    sa.Column('ntoken_type', sa.Integer(), nullable=False, comment='Tipe token: 1=Aktivasi, 2=Sesi Login, 3=Reset Password, 4=Ganti Email'),
     sa.Column('vcode', sa.String(length=255), nullable=False, comment='Kode unik untuk token aktivasi atau password reset'),
+    sa.Column('vnew_email', sa.String(length=255), nullable=True, comment='Email baru yang menunggu verifikasi'),
     sa.Column('vaccess_token', sa.Text(), nullable=True, comment='JWT access token untuk sesi login'),
     sa.Column('vrefresh_token', sa.Text(), nullable=True, comment='JWT refresh token untuk memperbarui access token'),
     sa.Column('vbrowser_info', sa.Text(), nullable=True, comment='Informasi browser/User-Agent dari user'),
@@ -106,7 +106,7 @@ def upgrade() -> None:
     sa.Column('dcreated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('dmodified_at', sa.DateTime(timezone=True), nullable=True),
     sa.CheckConstraint('nstatus IN (0, 1)', name='chk_token_nstatus_values'),
-    sa.CheckConstraint('ntoken_type IN (1, 2, 3)', name='chk_token_type_values'),
+    sa.CheckConstraint('ntoken_type IN (1, 2, 3, 4)', name='chk_token_type_values'),
     sa.ForeignKeyConstraint(['nid_user'], ['tbls_users.nid'], ),
     sa.PrimaryKeyConstraint('nid')
     )

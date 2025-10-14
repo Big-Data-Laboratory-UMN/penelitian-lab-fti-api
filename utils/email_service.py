@@ -174,6 +174,139 @@ Tim Support
         print(f"❌ [SYNC] {error_msg}")
         raise Exception(error_msg)
 
+async def send_email_change_verification_email(
+    recipient_email: str,
+    user_name: str,
+    verification_token: str,
+    frontend_url: str = "http://localhost:3000"
+) -> dict:
+    """
+    Kirim email verifikasi untuk perubahan alamat email.
+    """
+    
+    verification_link = f"{frontend_url}/auth/email-verified/{verification_token}"
+    
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = 'Konfirmasi Perubahan Alamat Email Anda'
+    msg['From'] = MAIL_FROM
+    msg['To'] = recipient_email
+    
+    # Versi teks biasa
+    text_content = f"""
+Halo, {user_name}!
+
+Kami menerima permintaan untuk mengubah alamat email akun Anda menjadi email ini.
+Untuk menyelesaikan proses, silakan klik tautan di bawah ini untuk memverifikasi alamat email baru Anda:
+{verification_link}
+
+Tautan ini akan kedaluwarsa dalam 24 jam.
+
+Jika Anda tidak merasa meminta perubahan ini, Anda bisa mengabaikan email ini dengan aman.
+
+Terima kasih,
+Tim Support
+    """
+    
+    # Versi HTML
+    html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); padding: 40px 30px; border-radius: 8px 8px 0 0;">
+                            <h1 style="color: white; margin: 0; font-size: 28px; text-align: center;">
+                                Verifikasi Email Baru Anda
+                            </h1>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            <h2 style="color: #333; margin-bottom: 10px;">Halo, {user_name}!</h2>
+                            <p style="color: #666; margin-bottom: 30px;">
+                                Kami menerima permintaan untuk memperbarui email Anda. Klik tombol di bawah untuk mengonfirmasi bahwa ini adalah alamat email baru Anda.
+                            </p>
+                            <div style="text-align: center; margin: 40px 0;">
+                                <a href="{verification_link}" 
+                                   style="display: inline-block; background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); 
+                                          color: white; text-decoration: none; padding: 15px 40px; 
+                                          border-radius: 50px; font-weight: bold; font-size: 16px;
+                                          box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);">
+                                    Verifikasi Email Ini
+                                </a>
+                            </div>
+                            <div style="background-color: #f9f9f9; padding: 15px; border-radius: 4px; margin: 30px 0;">
+                                <p style="color: #999; font-size: 12px; margin: 5px 0;">
+                                    Jika tombol tidak berfungsi, salin link berikut ke browser:
+                                </p>
+                                <p style="color: #3B82F6; font-size: 12px; word-break: break-all; margin: 5px 0;">
+                                    {verification_link}
+                                </p>
+                            </div>
+                            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+                            <p style="color: #999; font-size: 14px; margin-bottom: 10px;">
+                                <strong>Penting:</strong> Tautan verifikasi ini akan kedaluwarsa dalam <strong>24 jam</strong>.
+                            </p>
+                            <p style="color: #999; font-size: 12px;">
+                                Jika Anda tidak meminta perubahan email ini, silakan abaikan email ini.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background-color: #f9f9f9; padding: 20px 30px; border-radius: 0 0 8px 8px; text-align: center;">
+                            <p style="color: #999; font-size: 12px; margin: 0;">
+                                Email ini dikirim secara otomatis. Mohon tidak membalas email ini.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+    """
+    
+    msg.attach(MIMEText(text_content, 'plain'))
+    msg.attach(MIMEText(html_content, 'html'))
+    
+    if ASYNC_SMTP_AVAILABLE:
+        try:
+            await aiosmtplib.send(
+                msg,
+                hostname=MAIL_SERVER,
+                port=MAIL_PORT,
+                start_tls=MAIL_USE_TLS,
+                username=MAIL_USERNAME,
+                password=MAIL_PASSWORD,
+            )
+            print(f"✅ [ASYNC] Email verification for email change sent successfully to {recipient_email}")
+            return {"success": True, "message": "Email sent successfully", "method": "async"}
+            
+        except Exception as e:
+            print(f"❌ [ASYNC] Failed to send email: {str(e)}")
+    
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _send_email_sync, msg, recipient_email)
+        if result:
+            print(f"✅ [SYNC] Email verification for email change sent successfully to {recipient_email}")
+            return {"success": True, "message": "Email sent successfully", "method": "sync"}
+        else:
+            raise Exception("Failed to send email")
+            
+    except Exception as e:
+        error_msg = f"Failed to send email: {str(e)}"
+        print(f"❌ [SYNC] {error_msg}")
+        raise Exception(error_msg)
+
 
 def _send_email_sync(msg, recipient_email: str) -> bool:
     """Synchronous email sending helper"""
