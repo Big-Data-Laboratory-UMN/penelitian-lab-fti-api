@@ -5,7 +5,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 try:
-    import aiosmtplib
+    import aiosmtplib # type: ignore
     ASYNC_SMTP_AVAILABLE = True
 except ImportError:
     ASYNC_SMTP_AVAILABLE = False
@@ -141,14 +141,11 @@ Tim Support
 </html>
     """
     
-    # Attach parts
     msg.attach(MIMEText(text_content, 'plain'))
     msg.attach(MIMEText(html_content, 'html'))
     
-    # Try async first if available
     if ASYNC_SMTP_AVAILABLE:
         try:
-            # Use aiosmtplib for async sending
             await aiosmtplib.send(
                 msg,
                 hostname=MAIL_SERVER,
@@ -162,9 +159,7 @@ Tim Support
             
         except Exception as e:
             print(f"❌ [ASYNC] Failed to send email: {str(e)}")
-            # Fall through to sync method
     
-    # Fallback to synchronous SMTP
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _send_email_sync, msg, recipient_email)
@@ -200,7 +195,6 @@ def _send_email_sync(msg, recipient_email: str) -> bool:
         return False
 
 
-# Test function for debugging
 async def test_email_configuration() -> dict:
     """Test email configuration and connection"""
     results = {
@@ -211,7 +205,6 @@ async def test_email_configuration() -> dict:
         "errors": []
     }
     
-    # Test SMTP connection
     try:
         if MAIL_USE_SSL:
             server = smtplib.SMTP_SSL(MAIL_SERVER, MAIL_PORT)

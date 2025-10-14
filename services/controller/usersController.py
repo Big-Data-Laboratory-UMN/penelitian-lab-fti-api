@@ -2,12 +2,15 @@ import os
 import secrets
 from datetime import datetime, timedelta
 import pytz
+import threading
+import sys
+import time
 
 from fastapi_apscheduler import scheduler # type: ignore
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from passlib.context import CryptContext  # type: ignore
+from passlib.context import CryptContext # type: ignore
 
 from ..models import usersModel as models
 from ..models import tokenModel
@@ -22,27 +25,47 @@ if not PASSWORD_PEPPER:
 
 pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 
+def verify_activation_token(db: Session, token: str):
+    from datetime import datetime
+    from ..models import tokenModel, usersModel
+    import pytz
 
-# ======================
-# PASSWORD UTILS
-# ======================
+    db_token = (
+        db.query(tokenModel.Token)
+        .filter(
+            tokenModel.Token.vcode == token,
+            tokenModel.Token.ntoken_type == 1
+        )
+        .first()
+    )
+
+    if not db_token:
+        return {"valid": False, "reason": "Token not found."}
+    if db_token.nstatus == 0:
+        return {"valid": False, "reason": "Token already used or deactivated."}
+    
+    if db_token.dexpires_at < datetime.utcnow():
+        return {"valid": False, "reason": "Token expired."}
+
+    user = db.query(usersModel.User).filter(usersModel.User.nid == db_token.nid_user).first()
+    if not user:
+        return {"valid": False, "reason": "Associated user not found."}
+    if user.nstatus == 1:
+        return {"valid": False, "reason": "User already active."}
+    if user.nstatus == 3:
+        return {"valid": False, "reason": "User expired."}
+
+    return {"valid": True, "reason": "Token is active and valid."}
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     password_with_pepper = plain_password + PASSWORD_PEPPER
     return pwd_context.verify(password_with_pepper, hashed_password)
 
-
 def get_password_hash(password: str) -> str:
     password_with_pepper = password + PASSWORD_PEPPER
     return pwd_context.hash(password_with_pepper)
 
-
-# ======================
-# MAIN USER FUNCTIONS
-# ======================
-
 async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin, app=None, db_factory=None):
-    """Admin create user -> send activation email -> start personal countdown."""
     db_user = models.User(**user_data.model_dump(), vpassword=None, nstatus=2)
     try:
         db.add(db_user)
@@ -50,7 +73,7 @@ async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin,
         db.refresh(db_user)
 
         activation_token_str = secrets.token_urlsafe(32)
-        expires_at = datetime.now(jakarta_tz) + timedelta(minutes=1)
+        expires_at = datetime.utcnow() + timedelta(minutes=1)
 
         db_token = tokenModel.Token(
             nid_user=db_user.nid,
@@ -63,7 +86,6 @@ async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin,
         db.commit()
         db.refresh(db_token)
 
-        # Kirim email aktivasi
         try:
             await send_activation_email(
                 recipient_email=db_user.vemail,
@@ -73,14 +95,14 @@ async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin,
         except Exception as e:
             print(f"ERROR: User {db_user.vemail} created, BUT failed to send activation email. Error: {e}")
 
-        # Jadwalkan auto-expire untuk user ini
         if app and hasattr(app.state, "scheduler") and db_factory:
+            run_time_display = datetime.now(jakarta_tz) + timedelta(minutes=1)
             schedule_user_expiry(
                 sched=app.state.scheduler,
                 db_factory=db_factory,
                 user_id=db_user.nid,
                 token_id=db_token.nid,
-                expires_at=expires_at
+                expires_at=run_time_display
             )
 
         print(f"✅ User {db_user.vemail} created, activation email sent, expiry in 60s.")
@@ -89,7 +111,6 @@ async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin,
     except IntegrityError:
         db.rollback()
         raise ValueError("Failed to save. The provided user code or email is already in use.")
-
 
 def set_initial_password(db: Session, password_data: schema.SetInitialPassword):
     db_token = db.query(tokenModel.Token).filter(
@@ -102,7 +123,7 @@ def set_initial_password(db: Session, password_data: schema.SetInitialPassword):
     if db_token.nstatus == 0:
         raise ValueError("This activation link has already been used.")
 
-    if db_token.dexpires_at < datetime.now(jakarta_tz):
+    if db_token.dexpires_at < datetime.utcnow():
         user_to_update = db.query(models.User).filter(models.User.nid == db_token.nid_user).first()
         if user_to_update:
             user_to_update.nstatus = 3
@@ -120,8 +141,11 @@ def set_initial_password(db: Session, password_data: schema.SetInitialPassword):
 
     db.commit()
     db.refresh(user)
+    
+    print(f"✅ Password for user {user.vemail} (ID: {user.nid}) has been successfully set.")
+    print(f"   -> User status is now ACTIVE. Any running expiration countdown for this user is now void and will be skipped.")
+    
     return user
-
 
 async def resend_activation_email(db: Session, user_vcode: str, app=None, db_factory=None):
     user = get_user_by_code(db, user_code=user_vcode)
@@ -129,7 +153,7 @@ async def resend_activation_email(db: Session, user_vcode: str, app=None, db_fac
         raise ValueError("User not found.")
 
     activation_token_str = secrets.token_urlsafe(32)
-    expires_at = datetime.now(jakarta_tz) + timedelta(minutes=1)
+    expires_at = datetime.utcnow() + timedelta(minutes=1)
 
     db_token = tokenModel.Token(
         nid_user=user.nid,
@@ -153,37 +177,23 @@ async def resend_activation_email(db: Session, user_vcode: str, app=None, db_fac
         activation_token=activation_token_str,
     )
 
-    # Jadwalkan countdown baru juga
     if app and hasattr(app.state, "scheduler") and db_factory:
+        run_time_display = datetime.now(jakarta_tz) + timedelta(minutes=1)
         schedule_user_expiry(
             sched=app.state.scheduler,
             db_factory=db_factory,
             user_id=user.nid,
             token_id=db_token.nid,
-            expires_at=expires_at
+            expires_at=run_time_display
         )
 
     print(f"🔁 Resent activation email to {user.vemail}, expiry in 24 hours.")
     return {"message": "Activation email has been resent successfully."}
 
-
-# ======================
-# PER-USER EXPIRY SCHEDULER
-# ======================
-
 def schedule_user_expiry(sched, db_factory, user_id: int, token_id: int, expires_at: datetime):
-    """
-    Jadwalkan auto-expire untuk satu user tertentu (fixed 24 jam), 
-    dengan countdown real-time (debug).
-    """
-    import threading, sys, time
+    delay = 24 * 60 * 60
+    # delay = 60
 
-    # Logika diubah: parameter 'expires_at' diabaikan.
-    # Waktu expire sekarang di-set fix 24 jam dari sekarang.
-    delay = 24 * 60 * 60  # 24 jam dalam detik
-    # delay = 60 # 1 menit untuk testing
-
-    # Menggunakan waktu sekarang ditambah delay 24 jam untuk menentukan waktu eksekusi
     now = datetime.now(jakarta_tz)
     run_time = now + timedelta(seconds=delay)
 
@@ -194,25 +204,39 @@ def schedule_user_expiry(sched, db_factory, user_id: int, token_id: int, expires
             user = db.query(models.User).filter(models.User.nid == user_id).first()
             token = db.query(tokenModel.Token).filter(tokenModel.Token.nid == token_id).first()
             
-            # Cek jika user masih dalam status menunggu aktivasi (nstatus == 2)
             if user and user.nstatus == 2:
-                user.nstatus = 3  # Set status ke expired
+                user.nstatus = 3  
                 user.vmodified_by = "system"
                 if token:
-                    token.nstatus = 0 # Non-aktifkan token
+                    token.nstatus = 0 
                 db.commit()
-                sys.stdout.write(f"\n[EXPIRE] User {user.vemail} otomatis expired setelah 24 jam.\n")
+                sys.stdout.write(f"\n[EXPIRE] User {user.vemail} (ID: {user_id}) otomatis expired setelah 24 jam.\n")
                 sys.stdout.flush()
             else:
-                print(f"[SKIP] User {user_id} sudah diaktivasi atau status berubah sebelum 24 jam.")
+                sys.stdout.write(f"\n[SKIP] Expiration job untuk UserID={user_id} dibatalkan karena status user telah berubah.\n")
+                sys.stdout.flush()
         finally:
             db.close()
 
-    # Debug countdown in real-time (works on Windows & Unix)
     def countdown_display():
         total = int(delay)
+        db_session_for_check = None
+
         while total > 0:
-            # Konversi total detik ke format HH:MM:SS
+            try:
+                if total % 5 == 0:
+                    db_session_for_check = db_factory()
+                    user = db_session_for_check.query(models.User).filter(models.User.nid == user_id).first()
+                    if not user or user.nstatus != 2:
+                        sys.stdout.write(f"\r[COUNTDOWN] UserID={user_id} telah diaktivasi. Countdown dihentikan.{' ' * 20}\n")
+                        sys.stdout.flush()
+                        return
+            except Exception as e:
+                print(f"Error checking user status in countdown: {e}")
+            finally:
+                if db_session_for_check:
+                    db_session_for_check.close()
+
             mins, secs = divmod(total, 60)
             hours, mins = divmod(mins, 60)
             time_str = f"{hours:02d}:{mins:02d}:{secs:02d}"
@@ -221,17 +245,12 @@ def schedule_user_expiry(sched, db_factory, user_id: int, token_id: int, expires
             sys.stdout.flush()
             time.sleep(1)
             total -= 1
+            
         sys.stdout.write(f"\r[COUNTDOWN] UserID={user_id} pemicu ekspirasi 24 jam tercapai.{' ' * 20}\n")
         sys.stdout.flush()
 
-    # Jalankan countdown di thread terpisah agar tidak memblokir proses utama
     t = threading.Thread(target=countdown_display, daemon=True)
     t.start()
-
-
-# ======================
-# GLOBAL SCHEDULER INIT
-# ======================
 
 def start_scheduler(app):
     sched = scheduler.AsyncIOScheduler()
@@ -239,22 +258,14 @@ def start_scheduler(app):
     app.state.scheduler = sched
     print("✅ Scheduler started and ready for dynamic per-user jobs.")
 
-
-# ======================
-# CRUD HELPERS
-# ======================
-
 def get_user_by_code(db: Session, user_code: str):
     return db.query(models.User).filter(models.User.vcode == user_code).first()
-
 
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.vemail == email).first()
 
-
 def get_user(db: Session, user_id: int):
     return db.query(models.User).filter(models.User.nid == user_id).first()
-
 
 def update_user(db: Session, user_vcode: str, user: schema.UserUpdate):
     db_user = get_user_by_code(db, user_code=user_vcode)
@@ -272,7 +283,6 @@ def update_user(db: Session, user_vcode: str, user: schema.UserUpdate):
     except IntegrityError:
         db.rollback()
         raise ValueError("Failed to update. The provided user code or email is already in use.")
-
 
 def get_users(
     db: Session,
@@ -308,7 +318,6 @@ def get_users(
     data = query.offset(skip).limit(limit).all()
     return {"data": data, "total": total}
 
-
 def delete_user(db: Session, user_vcode: str):
     db_user = get_user_by_code(db, user_code=user_vcode)
     if db_user:
@@ -317,7 +326,6 @@ def delete_user(db: Session, user_vcode: str):
         db.commit()
         db.refresh(db_user)
     return db_user
-
 
 def get_all_users_for_dropdown(db: Session):
     users = db.query(models.User).filter(models.User.nstatus == 1).order_by(models.User.vname).all()

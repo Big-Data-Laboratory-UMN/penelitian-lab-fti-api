@@ -106,3 +106,10 @@ def soft_delete_user(user_vcode: str, db: Session = Depends(get_db)):
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return
+
+@router.get("/validate-token/{token}")
+def validate_activation_token(token: str, db: Session = Depends(get_db)):
+    result = usersController.verify_activation_token(db=db, token=token)
+    if not result["valid"]:
+        raise HTTPException(status_code=404, detail=result["reason"])
+    return result
