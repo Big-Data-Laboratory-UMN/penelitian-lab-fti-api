@@ -127,3 +127,8 @@ def verify_user_email_change(token: str, db: Session = Depends(get_db)):
         return updated_user
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/all-for-dropdown/", response_model=schema.UserDropdownResponse)
+def read_all_roles_permissions_for_dropdown(db: Session = Depends(get_db)):
+    users_data = usersController.get_all_users_for_dropdown(db=db)
+    return users_data

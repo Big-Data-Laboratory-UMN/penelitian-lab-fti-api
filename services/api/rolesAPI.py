@@ -86,3 +86,11 @@ def read_all_roles_for_dropdown(db: Session = Depends(get_db)):
     """
     roles_data = rolesController.get_all_roles_for_dropdown(db=db)
     return roles_data
+
+@router.get("/get-all/", response_model=List[schema.Role])
+def read_all_roles_no_pagination(db: Session = Depends(get_db)):
+    """
+    Mengambil semua data role tanpa paginasi.
+    """
+    roles = rolesController.get_all_roles(db=db)
+    return roles["data"]

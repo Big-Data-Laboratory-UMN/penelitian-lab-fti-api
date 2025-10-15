@@ -5,12 +5,109 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
 from services.database import SessionLocal
-from services.models import Role, Permissions, RolePermission
+from services.models import Role, Permissions, RolePermission, Lab, Department
 
 def seed_data():
     db = SessionLocal()
 
     try:
+        
+        if db.query(Lab).count() == 0:
+            print("Tabel 'tblm_lab' kosong, memulai proses seeding...")
+
+            labs_to_seed = [
+                {
+                    'vcode': 'BDA',
+                    'vname': 'Lab Big Data',
+                    'vdesc': 'Lab khusus untuk penelitian dan praktikum Big Data.',
+                    'vcreated_by': 'system-migration',
+                },
+                {
+                    'vcode': 'AI',
+                    'vname': 'Lab Artificial Intelligence',
+                    'vdesc': 'Lab khusus untuk penelitian dan praktikum AI.',
+                    'vcreated_by': 'system-migration',
+                },
+                {
+                    'vcode': 'DIGINT',
+                    'vname': 'Lab Digital Interaction',
+                    'vdesc': 'Lab khusus untuk penelitian dan praktikum Interaksi Digital.',
+                    'vcreated_by': 'system-migration',
+                },
+                {
+                    'vcode': 'CYBER',
+                    'vname': 'Lab Cyber Security',
+                    'vdesc': 'Lab khusus untuk penelitian dan praktikum Keamanan Siber.',
+                    'vcreated_by': 'system-migration',
+                },
+                {
+                    'vcode': 'IOT',
+                    'vname': 'Lab Internet of Things',
+                    'vdesc': 'Lab khusus untuk penelitian dan praktikum Internet of Things.',
+                    'vcreated_by': 'system-migration',
+                }
+            ]
+
+            for lab_data in labs_to_seed:
+                new_lab = Lab(**lab_data)
+                db.add(new_lab)
+
+            db.commit()
+            print("Seeding berhasil 'tblm_lab'! ✅")
+        else:
+            print("Data sudah ada di tabel 'tblm_lab', seeding dilewati. ⏭️")
+            
+        if db.query(Department).count() == 0:
+            print("Tabel 'tblm_department' kosong, memulai proses seeding...")
+
+            department_to_seed = [
+                {
+                    'vcode': 'SI',
+                    'vname': 'Prodi Sistem Informasi',
+                    'vdesc': 'Departemen Program Studi Sistem Informasi.',
+                    'vcreated_by': 'system-migration',
+                },
+                {
+                    'vcode': 'TK',
+                    'vname': 'Prodi Teknik Komputer',
+                    'vdesc': 'Departemen Program Studi Teknik Komputer.',
+                    'vcreated_by': 'system-migration',
+                },
+                {
+                    'vcode': 'TE',
+                    'vname': 'Prodi Teknik Elektro',
+                    'vdesc': 'Departemen Program Studi Teknik Elektro.',
+                    'vcreated_by': 'system-migration',
+                },
+                {
+                    'vcode': 'TI',
+                    'vname': 'Prodi Teknik Informatika',
+                    'vdesc': 'Departemen Program Studi Teknik Informatika.',
+                    'vcreated_by': 'system-migration',
+                },
+                {
+                    'vcode': 'TF',
+                    'vname': 'Prodi Teknik Fisika',
+                    'vdesc': 'Departemen Program Studi Teknik Fisika.',
+                    'vcreated_by': 'system-migration',
+                },
+                {
+                    'vcode': 'FTI',
+                    'vname': 'Fakultas Teknik & Informatika',
+                    'vdesc': 'Departemen Fakultas Teknik & Informatika.',
+                    'vcreated_by': 'system-migration',
+                }
+            ]
+
+            for department_data in department_to_seed:
+                new_department = Department(**department_data)
+                db.add(new_department)
+
+            db.commit()
+            print("Seeding berhasil 'tblm_department'! ✅")
+        else:
+            print("Data sudah ada di tabel 'tblm_department', seeding dilewati. ⏭️")
+        
         if db.query(Role).count() == 0:
             print("Tabel 'tblm_roles' kosong, memulai proses seeding...")
 

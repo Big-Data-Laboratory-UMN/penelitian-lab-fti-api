@@ -1,6 +1,6 @@
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
-from services.api import rolesAPI, permissionsAPI, rolesPermissionsAPI, usersAPI
+from services.api import rolesAPI, permissionsAPI, rolesPermissionsAPI, usersAPI, labAPI, departmentAPI, userAccess
 from services import models 
 from contextlib import asynccontextmanager
 from services.database import engine, Base, SessionLocal
@@ -48,3 +48,6 @@ app.include_router(rolesAPI.router)
 app.include_router(permissionsAPI.router)
 app.include_router(rolesPermissionsAPI.router)
 app.include_router(usersAPI.router)
+app.include_router(labAPI.router)
+app.include_router(departmentAPI.router)
+app.include_router(userAccess.router)

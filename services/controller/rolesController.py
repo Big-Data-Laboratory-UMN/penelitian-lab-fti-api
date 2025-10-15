@@ -157,3 +157,10 @@ def get_all_roles_for_dropdown(db: Session):
         .all()
     )
     return {"data": roles}
+
+def get_all_roles(db: Session):
+    """
+    Mengambil semua data role tanpa paginasi.
+    """
+    roles = (db.query(models.Role).order_by(models.Role.vname).all())
+    return {"data": roles}

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import rolesPermissionsModel as models
-from ..models import rolesModel, permissionsModel # <-- IMPORT TAMBAHAN
+from ..models import rolesModel, permissionsModel 
 from ..schemas import rolesPermissionsSchema as schema
 
 def get_role_permission_by_code(db: Session, vcode: str):

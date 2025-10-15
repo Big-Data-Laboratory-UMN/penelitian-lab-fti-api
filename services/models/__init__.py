@@ -1,4 +1,7 @@
 from .rolesModel import Role
+from .labModel import Lab
+from .departmentModel import Department
+from .userAccessModel import UserAccess
 from .permissionsModel import Permissions
 from .rolesPermissionsModel import RolePermission
 from .usersModel import User
