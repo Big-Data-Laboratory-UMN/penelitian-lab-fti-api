@@ -1,8 +1,8 @@
-"""Initial migration, create all tables
+"""init
 
-Revision ID: bc089d707cc7
+Revision ID: 4596b227e4db
 Revises: 
-Create Date: 2025-10-15 13:32:06.377936
+Create Date: 2025-10-15 23:57:09.577407
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'bc089d707cc7'
+revision: str = '4596b227e4db'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -42,6 +42,7 @@ def upgrade() -> None:
     sa.Column('vcode', sa.String(length=100), nullable=True),
     sa.Column('vname', sa.String(length=255), nullable=False),
     sa.Column('vdesc', sa.Text(), nullable=False),
+    sa.Column('ncapacity', sa.Integer(), nullable=False),
     sa.Column('nstatus', sa.Integer(), nullable=False),
     sa.Column('vcreated_by', sa.String(length=255), nullable=False),
     sa.Column('vmodified_by', sa.String(length=255), nullable=True),
@@ -104,6 +105,24 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_tbls_users_vcode'), 'tbls_users', ['vcode'], unique=True)
     op.create_index(op.f('ix_tbls_users_vemail'), 'tbls_users', ['vemail'], unique=True)
+    op.create_table('tblr_department_lab',
+    sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column('vcode', sa.String(length=100), nullable=False),
+    sa.Column('nid_lab', sa.Integer(), nullable=False),
+    sa.Column('nid_department', sa.Integer(), nullable=False),
+    sa.Column('nstatus', sa.Integer(), nullable=False),
+    sa.Column('vcreated_by', sa.String(length=255), nullable=False),
+    sa.Column('vmodified_by', sa.String(length=255), nullable=True),
+    sa.Column('dcreated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('dmodified_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('dsort_at', sa.DateTime(), nullable=True),
+    sa.CheckConstraint('nstatus IN (0, 1)', name='chk_department_lab_nstatus_values'),
+    sa.ForeignKeyConstraint(['nid_department'], ['tblm_department.nid'], ),
+    sa.ForeignKeyConstraint(['nid_lab'], ['tblm_lab.nid'], ),
+    sa.PrimaryKeyConstraint('nid'),
+    sa.UniqueConstraint('nid_lab', 'nid_department', name='u_department_lab_combination')
+    )
+    op.create_index(op.f('ix_tblr_department_lab_vcode'), 'tblr_department_lab', ['vcode'], unique=True)
     op.create_table('tblr_role_permissions',
     sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('vcode', sa.String(length=100), nullable=False),
@@ -128,7 +147,6 @@ def upgrade() -> None:
     sa.Column('nid_user', sa.Integer(), nullable=False),
     sa.Column('nid_role', sa.Integer(), nullable=False),
     sa.Column('nid_department', sa.Integer(), nullable=False),
-    sa.Column('nid_lab', sa.Integer(), nullable=False),
     sa.Column('nstatus', sa.Integer(), nullable=False),
     sa.Column('vcreated_by', sa.String(length=255), nullable=False),
     sa.Column('vmodified_by', sa.String(length=255), nullable=True),
@@ -137,11 +155,10 @@ def upgrade() -> None:
     sa.Column('dsort_at', sa.DateTime(), nullable=True),
     sa.CheckConstraint('nstatus IN (0, 1)', name='chk_user_access_nstatus_values'),
     sa.ForeignKeyConstraint(['nid_department'], ['tblm_department.nid'], ),
-    sa.ForeignKeyConstraint(['nid_lab'], ['tblm_lab.nid'], ),
     sa.ForeignKeyConstraint(['nid_role'], ['tblm_roles.nid'], ),
     sa.ForeignKeyConstraint(['nid_user'], ['tbls_users.nid'], ),
     sa.PrimaryKeyConstraint('nid'),
-    sa.UniqueConstraint('nid_role', 'nid_lab', 'nid_department', 'nid_user', name='uq_user_access_combination')
+    sa.UniqueConstraint('nid_role', 'nid_department', 'nid_user', name='uq_user_access_combination')
     )
     op.create_index(op.f('ix_tblr_user_access_vcode'), 'tblr_user_access', ['vcode'], unique=True)
     op.create_table('tbls_token',
@@ -179,6 +196,8 @@ def downgrade() -> None:
     op.drop_table('tblr_user_access')
     op.drop_index(op.f('ix_tblr_role_permissions_vcode'), table_name='tblr_role_permissions')
     op.drop_table('tblr_role_permissions')
+    op.drop_index(op.f('ix_tblr_department_lab_vcode'), table_name='tblr_department_lab')
+    op.drop_table('tblr_department_lab')
     op.drop_index(op.f('ix_tbls_users_vemail'), table_name='tbls_users')
     op.drop_index(op.f('ix_tbls_users_vcode'), table_name='tbls_users')
     op.drop_table('tbls_users')

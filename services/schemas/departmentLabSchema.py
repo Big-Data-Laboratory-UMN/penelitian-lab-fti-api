@@ -2,26 +2,23 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
-class UserAccessCreate(BaseModel):
+class DepartmentLabCreate(BaseModel):
     vcode: str
-    nid_user: int
-    nid_role: int
+    nid_lab: int
     nid_department: int
     vcreated_by: str = "system"
 
-class UserAccessUpdate(BaseModel):
+class DepartmentLabUpdate(BaseModel):
     vcode: str
-    nid_user: int
-    nid_role: int
+    nid_lab: int
     nid_department: int
     nstatus: int
     vmodified_by: str = "system"
 
-class UserAccess(BaseModel):
+class DepartmentLab(BaseModel):
     nid: int
     vcode: str
-    nid_user: int
-    nid_role: int
+    nid_lab: int
     nid_department: int
     nstatus: int
     dcreated_at: Optional[datetime] = None
@@ -32,16 +29,16 @@ class UserAccess(BaseModel):
     class Config:
         from_attributes = True 
 
-class UserAccessResponse(BaseModel):
-    data: List[UserAccess]
+class DepartmentLabResponse(BaseModel):
+    data: List[DepartmentLab]
     total: int
 
-class UserAccessDropdown(BaseModel):
+class DepartmentLabDropdown(BaseModel):
     nid: int
     vcode: str 
 
     class Config:
         from_attributes = True
 
-class UserAccessDropdownResponse(BaseModel):
-    data: List[UserAccessDropdown]
+class DepartmentLabDropdownResponse(BaseModel):
+    data: List[DepartmentLabDropdown]

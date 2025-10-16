@@ -6,12 +6,14 @@ class LabCreate(BaseModel):
     vcode: str
     vname: str
     vdesc: str
+    ncapacity: int
     vcreated_by: str = "system" 
 
 class LabUpdate(BaseModel):
     vcode: str
     vname: str
     vdesc: str
+    ncapacity: int
     nstatus: int
     vmodified_by: str = "system"
 
@@ -20,6 +22,7 @@ class Lab(BaseModel):
     vcode: str
     vname: str
     vdesc: str
+    ncapacity: int
     nstatus: int
     dcreated_at: Optional[datetime] = None
     vcreated_by: Optional[str] = None

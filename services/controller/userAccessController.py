@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import userAccessModel as models
-from ..models import rolesModel, usersModel, departmentModel, labModel
+from ..models import rolesModel, usersModel, departmentModel
 from ..schemas import userAccessSchema as schema
 
 def get_user_access_by_code(db: Session, vcode: str):
@@ -45,7 +45,6 @@ def update_user_access(db: Session, user_access_vcode: str, user_access: schema.
     db_user_access.nid_role = user_access.nid_role
     db_user_access.nid_user = user_access.nid_user
     db_user_access.nid_department = user_access.nid_department
-    db_user_access.nid_lab = user_access.nid_lab
     db_user_access.nstatus = user_access.nstatus
     db_user_access.vmodified_by = user_access.vmodified_by
     db_user_access.dsort_at = datetime.utcnow()
@@ -75,7 +74,6 @@ def get_user_access(
     nstatus: int | None = None,
     nid_role: int | None = None, 
     nid_user: int | None = None,
-    nid_lab: int | None = None,
     nid_department: int | None = None,
     vcode: str | None = None,
 ):
@@ -84,24 +82,19 @@ def get_user_access(
         rolesModel.Role.vname.label("role_name"),
         usersModel.User.vname.label("user_name"),
         departmentModel.Department.vname.label("department_name"),
-        labModel.Lab.vname.label("lab_name"),
     ).join(
         rolesModel.Role, models.UserAccess.nid_role == rolesModel.Role.nid, isouter=True
     ).join(
         usersModel.User, models.UserAccess.nid_user == usersModel.User.nid, isouter=True
     ).join(
         departmentModel.Department, models.UserAccess.nid_department == departmentModel.Department.nid, isouter=True
-    ).join(
-        labModel.Lab, models.UserAccess.nid_lab == labModel.Lab.nid, isouter=True
     )
-
     if search:
         search_filter = or_(
             models.UserAccess.vcode.ilike(f"%{search}%"),
             rolesModel.Role.vname.ilike(f"%{search}%"),
             usersModel.User.vname.ilike(f"%{search}%"),
             departmentModel.Department.vname.ilike(f"%{search}%"),
-            labModel.Lab.vname.ilike(f"%{search}%")
         )
         query = query.filter(search_filter)
         
@@ -114,8 +107,6 @@ def get_user_access(
         query = query.filter(models.UserAccess.nid_user == nid_user)
     if nid_department is not None: 
         query = query.filter(models.UserAccess.nid_department == nid_department)
-    if nid_lab is not None: 
-        query = query.filter(models.UserAccess.nid_lab == nid_lab)
     if vcode:
         query = query.filter(models.UserAccess.vcode.ilike(f"%{vcode}%"))
 
@@ -125,12 +116,11 @@ def get_user_access(
     results = query.offset(skip).limit(limit).all()
     
     data = []
-    for mapping, role_name, user_name, lab_name, department_name in results:
+    for mapping, role_name, user_name, department_name in results:
         mapping_data = mapping.__dict__
         mapping_data['role_name'] = role_name or '(Name Not Found)'
         mapping_data['user_name'] = user_name or '(Name Not Found)'
         mapping_data['department_name'] = department_name or '(Name Not Found)'
-        mapping_data['lab_name'] = lab_name or '(Name Not Found)'
         data.append(mapping_data)
 
     return {"data": data, "total": total}

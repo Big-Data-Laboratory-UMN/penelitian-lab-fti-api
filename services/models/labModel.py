@@ -13,6 +13,8 @@ class Lab(Base):
     vname = Column(String(255), nullable=False)
     vdesc = Column(Text, nullable=False)
     
+    ncapacity = Column(Integer, nullable=False)
+    
     nstatus = Column(Integer, nullable=False, default=1)
     
     vcreated_by = Column(String(255), nullable=False)

@@ -4,5 +4,6 @@ from .departmentModel import Department
 from .userAccessModel import UserAccess
 from .permissionsModel import Permissions
 from .rolesPermissionsModel import RolePermission
+from .departmentLabModel import DepartmentLab
 from .usersModel import User
 from .tokenModel import Token  
