@@ -144,3 +144,23 @@ def get_all_user_access_for_dropdown(db: Session):
         .all()
     )
     return {"data": user_access}
+
+def get_user_roles_by_user_id(db: Session, user_id: int) -> list[str]:
+    """
+    Mengambil daftar kode role (vcode) yang dimiliki oleh user berdasarkan user ID.
+    Mengembalikan list of string (kode role), bisa kosong jika user tidak punya role aktif.
+    """
+    user_access_list = (
+        db.query(models.UserAccess.nid_role, rolesModel.Role.vcode)
+        .join(rolesModel.Role, models.UserAccess.nid_role == rolesModel.Role.nid)
+        .filter(
+            models.UserAccess.nid_user == user_id,
+            models.UserAccess.nstatus == 1, # Hanya ambil relasi akses yang aktif
+            rolesModel.Role.nstatus == 1 # Pastikan role-nya juga aktif
+        )
+        .all()
+    )
+
+    # Ambil vcode-nya aja dari hasil query
+    role_codes = [role.vcode for role in user_access_list]
+    return role_codes

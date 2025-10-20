@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from ..schemas import permissionsSchema as schema
-from ..controller import permissionsController
+from ..schemas import permissionsSchema as schema, usersSchema
+from ..controller import permissionsController, usersController, userAccessController
 from ..database import SessionLocal
 
 router = APIRouter(
@@ -19,6 +19,14 @@ def get_db():
         db.close()
 
 
+def check_forbidden_roles(db: Session, current_user: usersSchema.User):
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    if "PIC" in user_roles or "VSTR" in user_roles or "ADM" in user_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak punya hak akses untuk operasi ini."
+        )
+
 @router.get("/", response_model=schema.PermissionResponse)
 def read_all_permissions(
     skip: int = 0,
@@ -28,11 +36,13 @@ def read_all_permissions(
     permissionCode: Optional[str] = None,
     permissionDesc: Optional[str] = None,
     status: Optional[int] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user)
 ):
     """
     Mengambil semua data permissions dengan paginasi, pencarian, dan filter.
     """
+    check_forbidden_roles(db, current_user)
     permissions_data = permissionsController.get_permissions(
         db=db, skip=skip, limit=limit, search=search,
         vname=permissionName, vcode=permissionCode, vdesc=permissionDesc, nstatus=status
@@ -41,10 +51,11 @@ def read_all_permissions(
 
 
 @router.get("/{permission_id}", response_model=schema.Permission)
-def get_permission_by_id(permission_id: int, db: Session = Depends(get_db)):
+def get_permission_by_id(permission_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
     """
     Mengambil data permission spesifik berdasarkan ID.
     """
+    check_forbidden_roles(db, current_user)
     permission = permissionsController.get_permission(db=db, permission_id=permission_id)
     if permission is None:
         raise HTTPException(status_code=404, detail="Permission not found")
@@ -52,10 +63,11 @@ def get_permission_by_id(permission_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=schema.Permission, status_code=status.HTTP_201_CREATED)
-def create_new_permission(permission: schema.PermissionCreate, db: Session = Depends(get_db)):
+def create_new_permission(permission: schema.PermissionCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
     """
     Membuat permission baru.
     """
+    check_forbidden_roles(db, current_user)
     try:
         return permissionsController.create_permission(db=db, permission=permission)
     except ValueError as e:
@@ -63,10 +75,11 @@ def create_new_permission(permission: schema.PermissionCreate, db: Session = Dep
 
 
 @router.put("/{permission_vcode}", response_model=schema.Permission)
-def update_existing_permission(permission_vcode: str, permission: schema.PermissionUpdate, db: Session = Depends(get_db)):
+def update_existing_permission(permission_vcode: str, permission: schema.PermissionUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
     """
     Mengupdate permission berdasarkan VCODE.
     """
+    check_forbidden_roles(db, current_user)
     try:
         db_permission = permissionsController.update_permission(db=db, permission_vcode=permission_vcode, permission=permission)
         if db_permission is None:
@@ -77,10 +90,11 @@ def update_existing_permission(permission_vcode: str, permission: schema.Permiss
 
 
 @router.delete("/{permission_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_permission(permission_vcode: str, db: Session = Depends(get_db)):
+def soft_delete_permission(permission_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
     """
     Melakukan soft delete pada permission berdasarkan VCODE.
     """
+    check_forbidden_roles(db, current_user)
     permission = permissionsController.delete_permission(db=db, permission_vcode=permission_vcode)
     if permission is None:
         raise HTTPException(status_code=404, detail="Permission not found")
@@ -88,9 +102,10 @@ def soft_delete_permission(permission_vcode: str, db: Session = Depends(get_db))
 
 
 @router.get("/all-for-dropdown/", response_model=schema.PermissionDropdownResponse)
-def read_all_permissions_for_dropdown(db: Session = Depends(get_db)):
+def read_all_permissions_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
     """
     Mengambil semua data permission aktif untuk keperluan dropdown.
     """
+    check_forbidden_roles(db, current_user)
     permissions_data = permissionsController.get_all_permissions_for_dropdown(db=db)
     return permissions_data

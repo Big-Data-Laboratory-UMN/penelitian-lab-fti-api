@@ -10,6 +10,8 @@ mysql-connector-python
 
 # --- Security ---
 passlib[argon2,bcrypt]
+python-jose[cryptography]
+argon2-cffi
 
 # --- Configuration & Utilities ---
 python-dotenv
