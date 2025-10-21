@@ -29,6 +29,9 @@ class User(UserBase):
 
     class Config:
         from_attributes = True
+        
+class UserWithRoles(User): # Inherit dari User biar dapet field yg sama
+    roles: List[str] = []
 
 class SetInitialPassword(BaseModel):
     token: str

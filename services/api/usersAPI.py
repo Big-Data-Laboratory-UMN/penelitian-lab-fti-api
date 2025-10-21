@@ -6,6 +6,7 @@ from datetime import timedelta, datetime
 from ..controller import userAccessController 
 from ..schemas import usersSchema as schema
 from ..controller import usersController
+from ..models import usersModel as models
 from ..database import SessionLocal # Import SessionLocal untuk db_factory
 
 router = APIRouter(
@@ -187,12 +188,22 @@ async def refresh_token_endpoint(
 # --- Endpoint yang Membutuhkan Autentikasi ---
 # Menggunakan dependency usersController.get_current_active_user_from_cookie
 
-@router.get("/me", response_model=schema.User)
+@router.get("/me", response_model=schema.UserWithRoles) 
 async def read_users_me(
-    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: models.User = Depends(usersController.get_current_active_user_from_cookie),
+    db: Session = Depends(get_db)
 ):
-    """Mengembalikan data user yang sedang login (berdasarkan cookie)."""
-    return current_user
+    """Mengembalikan data user yang sedang login (termasuk roles)."""
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+
+    user_data_validated = schema.User.model_validate(current_user)
+
+    response_data = schema.UserWithRoles(
+        **user_data_validated.model_dump(),
+        roles=user_roles
+    )
+
+    return response_data
 
 @router.post("/admin-create", response_model=schema.User, status_code=status.HTTP_201_CREATED)
 async def create_user_from_admin_panel(
