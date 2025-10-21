@@ -37,7 +37,7 @@ def read_all_permissions(
     permissionDesc: Optional[str] = None,
     status: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: usersSchema.User = Depends(usersController.get_current_active_user)
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     """
     Mengambil semua data permissions dengan paginasi, pencarian, dan filter.
@@ -51,7 +51,7 @@ def read_all_permissions(
 
 
 @router.get("/{permission_id}", response_model=schema.Permission)
-def get_permission_by_id(permission_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def get_permission_by_id(permission_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengambil data permission spesifik berdasarkan ID.
     """
@@ -63,7 +63,7 @@ def get_permission_by_id(permission_id: int, db: Session = Depends(get_db), curr
 
 
 @router.post("/", response_model=schema.Permission, status_code=status.HTTP_201_CREATED)
-def create_new_permission(permission: schema.PermissionCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def create_new_permission(permission: schema.PermissionCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Membuat permission baru.
     """
@@ -75,7 +75,7 @@ def create_new_permission(permission: schema.PermissionCreate, db: Session = Dep
 
 
 @router.put("/{permission_vcode}", response_model=schema.Permission)
-def update_existing_permission(permission_vcode: str, permission: schema.PermissionUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def update_existing_permission(permission_vcode: str, permission: schema.PermissionUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengupdate permission berdasarkan VCODE.
     """
@@ -90,7 +90,7 @@ def update_existing_permission(permission_vcode: str, permission: schema.Permiss
 
 
 @router.delete("/{permission_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_permission(permission_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def soft_delete_permission(permission_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Melakukan soft delete pada permission berdasarkan VCODE.
     """
@@ -102,7 +102,7 @@ def soft_delete_permission(permission_vcode: str, db: Session = Depends(get_db),
 
 
 @router.get("/all-for-dropdown/", response_model=schema.PermissionDropdownResponse)
-def read_all_permissions_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def read_all_permissions_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengambil semua data permission aktif untuk keperluan dropdown.
     """

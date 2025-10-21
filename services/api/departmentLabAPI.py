@@ -37,7 +37,7 @@ def read_all_department_labs(
     nid_department: Optional[int] = None,
     mappingCode: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: usersSchema.User = Depends(usersController.get_current_active_user)
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
     department_labs_data = departmentLabController.get_department_labs(
@@ -48,7 +48,7 @@ def read_all_department_labs(
     return department_labs_data
 
 @router.get("/{department_lab_id}", response_model=schema.DepartmentLab)
-def get_department_lab_by_id(department_lab_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def get_department_lab_by_id(department_lab_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     department_lab = departmentLabController.get_department_lab(db=db, department_lab_id=department_lab_id)
     if department_lab is None:
@@ -56,7 +56,7 @@ def get_department_lab_by_id(department_lab_id: int, db: Session = Depends(get_d
     return department_lab
 
 @router.post("/", response_model=schema.DepartmentLab, status_code=status.HTTP_201_CREATED)
-def create_new_department_lab(department_lab: schema.DepartmentLabCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def create_new_department_lab(department_lab: schema.DepartmentLabCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
         return departmentLabController.create_department_lab(db=db, department_lab=department_lab)
@@ -64,7 +64,7 @@ def create_new_department_lab(department_lab: schema.DepartmentLabCreate, db: Se
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{department_lab_vcode}", response_model=schema.DepartmentLab)
-def update_existing_department_lab(department_lab_vcode: str, department_lab: schema.DepartmentLabUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def update_existing_department_lab(department_lab_vcode: str, department_lab: schema.DepartmentLabUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
         db_department_lab = departmentLabController.update_department_lab(db=db, department_lab_vcode=department_lab_vcode, department_lab=department_lab)
@@ -75,7 +75,7 @@ def update_existing_department_lab(department_lab_vcode: str, department_lab: sc
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{department_lab_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_department_lab(department_lab_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def soft_delete_department_lab(department_lab_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     department_lab = departmentLabController.delete_department_lab(db=db, department_lab_vcode=department_lab_vcode)
     if department_lab is None:
@@ -83,7 +83,7 @@ def soft_delete_department_lab(department_lab_vcode: str, db: Session = Depends(
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.DepartmentLabDropdownResponse)
-def read_all_department_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def read_all_department_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     department_labs_data = departmentLabController.get_all_department_labs_for_dropdown(db=db)
     return department_labs_data

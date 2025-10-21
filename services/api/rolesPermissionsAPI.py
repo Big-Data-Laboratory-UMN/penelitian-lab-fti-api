@@ -36,7 +36,7 @@ def read_all_roles_permissions(
     nid_permission: Optional[int] = None,
     mappingCode: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: usersSchema.User = Depends(usersController.get_current_active_user)
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     """
     Mengambil semua data relasi role-permission dengan paginasi dan filter.
@@ -50,7 +50,7 @@ def read_all_roles_permissions(
     return roles_permissions_data
 
 @router.get("/{role_permission_id}", response_model=schema.RolePermission)
-def get_role_permission_by_id(role_permission_id: int, db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def get_role_permission_by_id(role_permission_id: int, db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengambil data relasi role-permission spesifik berdasarkan ID.
     """
@@ -61,7 +61,7 @@ def get_role_permission_by_id(role_permission_id: int, db: Session = Depends(get
     return role_permission
 
 @router.post("/", response_model=schema.RolePermission, status_code=status.HTTP_201_CREATED)
-def create_new_role_permission(role_permission: schema.RolePermissionCreate, db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def create_new_role_permission(role_permission: schema.RolePermissionCreate, db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Membuat relasi role-permission baru.
     """
@@ -72,7 +72,7 @@ def create_new_role_permission(role_permission: schema.RolePermissionCreate, db:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{role_permission_vcode}", response_model=schema.RolePermission)
-def update_existing_role_permission(role_permission_vcode: str, role_permission: schema.RolePermissionUpdate, db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def update_existing_role_permission(role_permission_vcode: str, role_permission: schema.RolePermissionUpdate, db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengupdate relasi role-permission berdasarkan VCODE.
     """
@@ -86,7 +86,7 @@ def update_existing_role_permission(role_permission_vcode: str, role_permission:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{role_permission_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_role_permission(role_permission_vcode: str, db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def soft_delete_role_permission(role_permission_vcode: str, db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Melakukan soft delete pada relasi role-permission berdasarkan VCODE.
     """
@@ -97,7 +97,7 @@ def soft_delete_role_permission(role_permission_vcode: str, db: Session = Depend
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.RolePermissionDropdownResponse)
-def read_all_roles_permissions_for_dropdown(db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def read_all_roles_permissions_for_dropdown(db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengambil semua data relasi role-permission aktif untuk keperluan dropdown.
     """

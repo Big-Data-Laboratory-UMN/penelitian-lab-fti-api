@@ -39,7 +39,7 @@ def read_all_user_access(
     # nid_lab: Optional[int] = None,
     mappingCode: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: usersSchema.User = Depends(usersController.get_current_active_user)
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
     
@@ -52,7 +52,7 @@ def read_all_user_access(
     return user_access_data
 
 @router.get("/{user_access_id}", response_model=schema.UserAccess)
-def get_user_access_by_id(user_access_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def get_user_access_by_id(user_access_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     user_access = userAccessController.get_user_access(db=db, user_access_id=user_access_id)
     if user_access is None:
@@ -60,7 +60,7 @@ def get_user_access_by_id(user_access_id: int, db: Session = Depends(get_db), cu
     return user_access
 
 @router.post("/", response_model=schema.UserAccess, status_code=status.HTTP_201_CREATED)
-def create_new_user_access(user_access: schema.UserAccessCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def create_new_user_access(user_access: schema.UserAccessCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
         return userAccessController.create_user_access(db=db, user_access=user_access)
@@ -68,7 +68,7 @@ def create_new_user_access(user_access: schema.UserAccessCreate, db: Session = D
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{user_access_vcode}", response_model=schema.UserAccess)
-def update_existing_user_access(user_access_vcode: str, user_access: schema.UserAccessUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def update_existing_user_access(user_access_vcode: str, user_access: schema.UserAccessUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
         db_user_access = userAccessController.update_user_access(db=db, user_access_vcode=user_access_vcode, user_access=user_access)
@@ -79,7 +79,7 @@ def update_existing_user_access(user_access_vcode: str, user_access: schema.User
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{user_access_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_user_access(user_access_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def soft_delete_user_access(user_access_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     user_access = userAccessController.delete_user_access(db=db, user_access_vcode=user_access_vcode)
     if user_access is None:
@@ -87,7 +87,7 @@ def soft_delete_user_access(user_access_vcode: str, db: Session = Depends(get_db
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.UserAccessDropdownResponse)
-def read_all_user_access_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def read_all_user_access_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     user_access_data = userAccessController.get_all_user_access_for_dropdown(db=db)
     return user_access_data

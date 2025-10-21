@@ -35,7 +35,7 @@ def read_all_roles(
     roleCode: Optional[str] = None,
     roleDesc: Optional[str] = None,
     status: Optional[int] = None,
-    db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)
+    db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
     roles_data = rolesController.get_roles(
@@ -45,7 +45,7 @@ def read_all_roles(
     return roles_data
 
 @router.get("/{role_id}", response_model=schema.Role)
-def get_role_by_id(role_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def get_role_by_id(role_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengambil data role spesifik berdasarkan ID.
     """
@@ -57,7 +57,7 @@ def get_role_by_id(role_id: int, db: Session = Depends(get_db), current_user: us
 
 
 @router.post("/", response_model=schema.Role, status_code=status.HTTP_201_CREATED)
-def create_new_role(role: schema.RoleCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def create_new_role(role: schema.RoleCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Membuat role baru.
     """
@@ -68,7 +68,7 @@ def create_new_role(role: schema.RoleCreate, db: Session = Depends(get_db), curr
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{role_vcode}", response_model=schema.Role)
-def update_existing_role(role_vcode: str, role: schema.RoleUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def update_existing_role(role_vcode: str, role: schema.RoleUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengupdate role berdasarkan VCODE.
     """
@@ -82,7 +82,7 @@ def update_existing_role(role_vcode: str, role: schema.RoleUpdate, db: Session =
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{role_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_role(role_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def soft_delete_role(role_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Melakukan soft delete pada role berdasarkan VCODE.
     """
@@ -93,7 +93,7 @@ def soft_delete_role(role_vcode: str, db: Session = Depends(get_db), current_use
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.RoleDropdownResponse)
-def read_all_roles_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def read_all_roles_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengambil semua data role aktif untuk keperluan dropdown.
     """
@@ -102,7 +102,7 @@ def read_all_roles_for_dropdown(db: Session = Depends(get_db), current_user: use
     return roles_data
 
 @router.get("/get-all/", response_model=List[schema.Role])
-def read_all_roles_no_pagination(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def read_all_roles_no_pagination(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengambil semua data role tanpa paginasi.
     """

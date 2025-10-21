@@ -35,7 +35,7 @@ def read_all_departments(
     departmentCode: Optional[str] = None,
     departmentDesc: Optional[str] = None,
     status: Optional[int] = None,
-    db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user)
+    db: Session = Depends(get_db),  current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
     departments_data = departmentController.get_departments(
@@ -45,7 +45,7 @@ def read_all_departments(
     return departments_data
 
 @router.get("/{department_id}", response_model=schema.Department)
-def get_department_by_id(department_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def get_department_by_id(department_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     department = departmentController.get_department(db=db, department_id=department_id)
     if department is None:
@@ -54,7 +54,7 @@ def get_department_by_id(department_id: int, db: Session = Depends(get_db), curr
 
 
 @router.post("/", response_model=schema.Department, status_code=status.HTTP_201_CREATED)
-def create_new_department(department: schema.DepartmentCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def create_new_department(department: schema.DepartmentCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
         return departmentController.create_department(db=db, department=department)
@@ -62,7 +62,7 @@ def create_new_department(department: schema.DepartmentCreate, db: Session = Dep
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{department_vcode}", response_model=schema.Department)
-def update_existing_department(department_vcode: str, department: schema.DepartmentUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def update_existing_department(department_vcode: str, department: schema.DepartmentUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
         db_department = departmentController.update_department(db=db, department_vcode=department_vcode, department=department)
@@ -73,7 +73,7 @@ def update_existing_department(department_vcode: str, department: schema.Departm
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{department_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_department(department_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def soft_delete_department(department_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     department = departmentController.delete_department(db=db, department_vcode=department_vcode)
     if department is None:
@@ -81,7 +81,7 @@ def soft_delete_department(department_vcode: str, db: Session = Depends(get_db),
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.DepartmentDropdownResponse)
-def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     departments_data = departmentController.get_all_departments_for_dropdown(db=db)
     return departments_data

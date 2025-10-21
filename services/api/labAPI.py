@@ -37,7 +37,7 @@ def read_all_labs(
     labDesc: Optional[str] = None,
     status: Optional[int] = None,
     db: Session = Depends(get_db),
-    current_user: usersSchema.User = Depends(usersController.get_current_active_user)
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
     labs_data = labController.get_labs(
@@ -47,7 +47,7 @@ def read_all_labs(
     return labs_data
 
 @router.get("/{lab_id}", response_model=schema.Lab)
-def get_lab_by_id(lab_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def get_lab_by_id(lab_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     lab = labController.get_lab(db=db, lab_id=lab_id)
     if lab is None:
@@ -56,7 +56,7 @@ def get_lab_by_id(lab_id: int, db: Session = Depends(get_db), current_user: user
 
 
 @router.post("/", response_model=schema.Lab, status_code=status.HTTP_201_CREATED)
-def create_new_lab(lab: schema.LabCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def create_new_lab(lab: schema.LabCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
         return labController.create_lab(db=db, lab=lab)
@@ -64,7 +64,7 @@ def create_new_lab(lab: schema.LabCreate, db: Session = Depends(get_db), current
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{lab_vcode}", response_model=schema.Lab)
-def update_existing_lab(lab_vcode: str, lab: schema.LabUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def update_existing_lab(lab_vcode: str, lab: schema.LabUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
         db_lab = labController.update_lab(db=db, lab_vcode=lab_vcode, lab=lab)
@@ -75,7 +75,7 @@ def update_existing_lab(lab_vcode: str, lab: schema.LabUpdate, db: Session = Dep
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{lab_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_lab(lab_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def soft_delete_lab(lab_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     lab = labController.delete_lab(db=db, lab_vcode=lab_vcode)
     if lab is None:
@@ -83,7 +83,7 @@ def soft_delete_lab(lab_vcode: str, db: Session = Depends(get_db), current_user:
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.LabDropdownResponse)
-def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user)):
+def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     labs_data = labController.get_all_labs_for_dropdown(db=db)
     return labs_data
