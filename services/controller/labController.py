@@ -53,6 +53,7 @@ def update_lab(db: Session, lab_vcode: str, lab: schema.LabUpdate):
     db_lab.vcode = lab.vcode
     db_lab.vname = lab.vname
     db_lab.vdesc = lab.vdesc
+    db_lab.ncapacity = lab.ncapacity
     db_lab.nstatus = lab.nstatus
     db_lab.vmodified_by = lab.vmodified_by
     db_lab.dsort_at = datetime.utcnow()
