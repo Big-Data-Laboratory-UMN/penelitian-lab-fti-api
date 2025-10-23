@@ -1,8 +1,8 @@
-"""init
+"""'init'
 
-Revision ID: 4596b227e4db
+Revision ID: 1308a8cb744e
 Revises: 
-Create Date: 2025-10-15 23:57:09.577407
+Create Date: 2025-10-23 15:37:05.059824
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '4596b227e4db'
+revision: str = '1308a8cb744e'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -37,6 +37,28 @@ def upgrade() -> None:
     sa.UniqueConstraint('vcode', 'vname', name='uq_departmment_vcode_vname')
     )
     op.create_index(op.f('ix_tblm_department_vcode'), 'tblm_department', ['vcode'], unique=True)
+    op.create_table('tblm_files',
+    sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column('vcode', sa.String(length=100), nullable=True),
+    sa.Column('vname', sa.String(length=255), nullable=False),
+    sa.Column('vtype', sa.Text(), nullable=False),
+    sa.Column('vpath', sa.Text(), nullable=False),
+    sa.Column('vextension', sa.String(length=100), nullable=False),
+    sa.Column('nsize', sa.Float(), nullable=False),
+    sa.Column('vcategory', sa.String(length=100), nullable=False),
+    sa.Column('nis_public', sa.Integer(), nullable=False),
+    sa.Column('nstatus', sa.Integer(), nullable=False),
+    sa.Column('vcreated_by', sa.String(length=255), nullable=False),
+    sa.Column('vmodified_by', sa.String(length=255), nullable=True),
+    sa.Column('dcreated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('dmodified_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('dsort_at', sa.DateTime(), nullable=True),
+    sa.CheckConstraint('nis_public IN (0, 1)', name='chk_files_nis_public_values'),
+    sa.CheckConstraint('nstatus IN (0, 1)', name='chk_files_nstatus_values'),
+    sa.PrimaryKeyConstraint('nid'),
+    sa.UniqueConstraint('vcode', 'vname', name='uq_files_vcode_vname')
+    )
+    op.create_index(op.f('ix_tblm_files_vcode'), 'tblm_files', ['vcode'], unique=True)
     op.create_table('tblm_lab',
     sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('vcode', sa.String(length=100), nullable=True),
@@ -54,22 +76,6 @@ def upgrade() -> None:
     sa.UniqueConstraint('vcode', 'vname', name='uq_lab_vcode_vname')
     )
     op.create_index(op.f('ix_tblm_lab_vcode'), 'tblm_lab', ['vcode'], unique=True)
-    op.create_table('tblm_permissions',
-    sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
-    sa.Column('vcode', sa.String(length=100), nullable=True),
-    sa.Column('vname', sa.String(length=255), nullable=False),
-    sa.Column('vdesc', sa.Text(), nullable=False),
-    sa.Column('nstatus', sa.Integer(), nullable=False),
-    sa.Column('vcreated_by', sa.String(length=255), nullable=False),
-    sa.Column('vmodified_by', sa.String(length=255), nullable=True),
-    sa.Column('dcreated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('dmodified_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('dsort_at', sa.DateTime(), nullable=True),
-    sa.CheckConstraint('nstatus IN (0, 1)', name='chk_permissions_nstatus_values'),
-    sa.PrimaryKeyConstraint('nid'),
-    sa.UniqueConstraint('vcode', 'vname', name='uq_permission_vcode_vname')
-    )
-    op.create_index(op.f('ix_tblm_permissions_vcode'), 'tblm_permissions', ['vcode'], unique=True)
     op.create_table('tblm_roles',
     sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('vcode', sa.String(length=100), nullable=True),
@@ -105,6 +111,24 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_tbls_users_vcode'), 'tbls_users', ['vcode'], unique=True)
     op.create_index(op.f('ix_tbls_users_vemail'), 'tbls_users', ['vemail'], unique=True)
+    op.create_table('tblm_facility',
+    sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column('vcode', sa.String(length=100), nullable=True),
+    sa.Column('vname', sa.String(length=255), nullable=False),
+    sa.Column('vdesc', sa.Text(), nullable=False),
+    sa.Column('nstatus', sa.Integer(), nullable=False),
+    sa.Column('nid_file', sa.Integer(), nullable=False),
+    sa.Column('vcreated_by', sa.String(length=255), nullable=False),
+    sa.Column('vmodified_by', sa.String(length=255), nullable=True),
+    sa.Column('dcreated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('dmodified_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('dsort_at', sa.DateTime(), nullable=True),
+    sa.CheckConstraint('nstatus IN (0, 1)', name='chk_facilities_nstatus_values'),
+    sa.ForeignKeyConstraint(['nid_file'], ['tblm_files.nid'], ),
+    sa.PrimaryKeyConstraint('nid'),
+    sa.UniqueConstraint('vcode', 'vname', name='uq_facilities_vcode_vname')
+    )
+    op.create_index(op.f('ix_tblm_facility_vcode'), 'tblm_facility', ['vcode'], unique=True)
     op.create_table('tblr_department_lab',
     sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('vcode', sa.String(length=100), nullable=False),
@@ -123,24 +147,6 @@ def upgrade() -> None:
     sa.UniqueConstraint('nid_lab', 'nid_department', name='u_department_lab_combination')
     )
     op.create_index(op.f('ix_tblr_department_lab_vcode'), 'tblr_department_lab', ['vcode'], unique=True)
-    op.create_table('tblr_role_permissions',
-    sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
-    sa.Column('vcode', sa.String(length=100), nullable=False),
-    sa.Column('nid_role', sa.Integer(), nullable=False),
-    sa.Column('nid_permission', sa.Integer(), nullable=False),
-    sa.Column('nstatus', sa.Integer(), nullable=False),
-    sa.Column('vcreated_by', sa.String(length=255), nullable=False),
-    sa.Column('vmodified_by', sa.String(length=255), nullable=True),
-    sa.Column('dcreated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('dmodified_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('dsort_at', sa.DateTime(), nullable=True),
-    sa.CheckConstraint('nstatus IN (0, 1)', name='chk_role_permissions_nstatus_values'),
-    sa.ForeignKeyConstraint(['nid_permission'], ['tblm_permissions.nid'], ),
-    sa.ForeignKeyConstraint(['nid_role'], ['tblm_roles.nid'], ),
-    sa.PrimaryKeyConstraint('nid'),
-    sa.UniqueConstraint('nid_role', 'nid_permission', name='uq_role_permission_combination')
-    )
-    op.create_index(op.f('ix_tblr_role_permissions_vcode'), 'tblr_role_permissions', ['vcode'], unique=True)
     op.create_table('tblr_user_access',
     sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('vcode', sa.String(length=100), nullable=False),
@@ -183,30 +189,50 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_tbls_token_ntoken_type'), 'tbls_token', ['ntoken_type'], unique=False)
     op.create_index(op.f('ix_tbls_token_vcode'), 'tbls_token', ['vcode'], unique=True)
+    op.create_table('tblr_lab_facility',
+    sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column('vcode', sa.String(length=100), nullable=False),
+    sa.Column('nid_lab', sa.Integer(), nullable=False),
+    sa.Column('nid_facility', sa.Integer(), nullable=False),
+    sa.Column('nstatus', sa.Integer(), nullable=False),
+    sa.Column('vcreated_by', sa.String(length=255), nullable=False),
+    sa.Column('vmodified_by', sa.String(length=255), nullable=True),
+    sa.Column('dcreated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('dmodified_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('dsort_at', sa.DateTime(), nullable=True),
+    sa.CheckConstraint('nstatus IN (0, 1)', name='chk_facility_lab_nstatus_values'),
+    sa.ForeignKeyConstraint(['nid_facility'], ['tblm_facility.nid'], ),
+    sa.ForeignKeyConstraint(['nid_lab'], ['tblm_lab.nid'], ),
+    sa.PrimaryKeyConstraint('nid'),
+    sa.UniqueConstraint('nid_lab', 'nid_facility', name='u_facility_lab_combination')
+    )
+    op.create_index(op.f('ix_tblr_lab_facility_vcode'), 'tblr_lab_facility', ['vcode'], unique=True)
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index(op.f('ix_tblr_lab_facility_vcode'), table_name='tblr_lab_facility')
+    op.drop_table('tblr_lab_facility')
     op.drop_index(op.f('ix_tbls_token_vcode'), table_name='tbls_token')
     op.drop_index(op.f('ix_tbls_token_ntoken_type'), table_name='tbls_token')
     op.drop_table('tbls_token')
     op.drop_index(op.f('ix_tblr_user_access_vcode'), table_name='tblr_user_access')
     op.drop_table('tblr_user_access')
-    op.drop_index(op.f('ix_tblr_role_permissions_vcode'), table_name='tblr_role_permissions')
-    op.drop_table('tblr_role_permissions')
     op.drop_index(op.f('ix_tblr_department_lab_vcode'), table_name='tblr_department_lab')
     op.drop_table('tblr_department_lab')
+    op.drop_index(op.f('ix_tblm_facility_vcode'), table_name='tblm_facility')
+    op.drop_table('tblm_facility')
     op.drop_index(op.f('ix_tbls_users_vemail'), table_name='tbls_users')
     op.drop_index(op.f('ix_tbls_users_vcode'), table_name='tbls_users')
     op.drop_table('tbls_users')
     op.drop_index(op.f('ix_tblm_roles_vcode'), table_name='tblm_roles')
     op.drop_table('tblm_roles')
-    op.drop_index(op.f('ix_tblm_permissions_vcode'), table_name='tblm_permissions')
-    op.drop_table('tblm_permissions')
     op.drop_index(op.f('ix_tblm_lab_vcode'), table_name='tblm_lab')
     op.drop_table('tblm_lab')
+    op.drop_index(op.f('ix_tblm_files_vcode'), table_name='tblm_files')
+    op.drop_table('tblm_files')
     op.drop_index(op.f('ix_tblm_department_vcode'), table_name='tblm_department')
     op.drop_table('tblm_department')
     # ### end Alembic commands ###

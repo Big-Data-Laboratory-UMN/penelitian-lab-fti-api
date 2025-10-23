@@ -1,10 +1,11 @@
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
-from services.api import rolesAPI, permissionsAPI, rolesPermissionsAPI, usersAPI, labAPI, departmentAPI, userAccessAPI, departmentLabAPI
+from services.api import rolesAPI, permissionsAPI, rolesPermissionsAPI, usersAPI, labAPI, departmentAPI, userAccessAPI, departmentLabAPI, filesAPI, facilityAPI
 from services import models 
 from contextlib import asynccontextmanager
 from services.database import engine, Base, SessionLocal
 from services.controller import usersController
+import asyncio
 
 Base.metadata.create_all(bind=engine)
 
@@ -17,9 +18,13 @@ async def lifespan(app: FastAPI):
     # Startup
     usersController.start_scheduler(app)
     print("🔄 Lifespan started, scheduler initialized.")
+    app.state.user_upload_locks = {}
+    print("[*] Application startup: Initializing state...")
+    app.state.lock_dict_lock = asyncio.Lock()
+    print("[*] Application state (user_upload_locks, lock_dict_lock) initialized.")
     yield
     # Shutdown
-    print("🛑 Lifespan shutting down, cleaning up scheduler.")
+    print("[*] Application shutdown: Cleaning up...")
     if hasattr(app.state, "scheduler"):
         app.state.scheduler.shutdown(wait=False)
 
@@ -52,3 +57,5 @@ app.include_router(labAPI.router)
 app.include_router(departmentAPI.router)
 app.include_router(departmentLabAPI.router)
 app.include_router(userAccessAPI.router)
+app.include_router(filesAPI.router)
+app.include_router(facilityAPI.router)

@@ -19,3 +19,7 @@ __pycache__/
 
 # File database lokal (jika pakai SQLite untuk testing)
 *.sqlite3
+
+# Folder storage lokal
+storage/
+.storage/

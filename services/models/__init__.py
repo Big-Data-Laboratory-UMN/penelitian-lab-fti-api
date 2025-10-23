@@ -7,3 +7,6 @@ from .userAccessModel import UserAccess
 from .departmentLabModel import DepartmentLab
 from .usersModel import User
 from .tokenModel import Token  
+from .facilityModel import Facility
+from .labFacilityModel import LabFacility
+from .filesModel import Files
