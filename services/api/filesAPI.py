@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response # type: ignore
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pathlib import Path
 
 # Import schema dan controller yang relevan
 from ..schemas import filesSchema as schema, usersSchema
@@ -150,3 +152,25 @@ def read_all_files_for_dropdown(
     check_forbidden_roles(db, current_user) # Terapkan role check
     files_data = fileController.get_all_files_for_dropdown(db=db)
     return files_data
+
+
+@router.get("/{file_id}/raw")
+def get_file_raw(file_id: int, db: Session = Depends(get_db)):
+    """
+    Serve file content for frontend preview.
+    GET /files/{file_id}/raw
+    """
+    db_file = fileController.get_file(db=db, file_id=file_id)
+    if not db_file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # if db_file.vpath is absolute path, convert to Path
+    file_path = Path(db_file.vpath)
+    # If vpath stored relative, prefix with your UPLOAD_DIR, e.g. STORAGE_DIR / db_file.vpath
+    # STORAGE_DIR = Path("/app/storage/facilities") or from config
+    # file_path = STORAGE_DIR / db_file.vpath
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Physical file not found")
+
+    return FileResponse(path=str(file_path.resolve()), media_type=db_file.vtype, filename=db_file.vname)

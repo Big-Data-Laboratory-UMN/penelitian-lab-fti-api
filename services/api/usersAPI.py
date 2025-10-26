@@ -121,7 +121,15 @@ async def login_for_access_token(
                 detail=str(e)
             )
     except Exception as e:
+        error_message = str(e)
         print(f"[API /token] Unexpected error during login for {username}: {e}")
+        
+        if "401" in error_message or "Unauthorized" in error_message:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Email atau password salah."
+            )
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Terjadi kesalahan pada server saat mencoba login."
