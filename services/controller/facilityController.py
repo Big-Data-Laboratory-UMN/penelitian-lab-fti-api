@@ -221,17 +221,29 @@ def delete_facility(db: Session, facility_vcode: str, modified_by: str):
         raise ValueError(f"Gagal menghapus fasilitas. {e}")
 
 
-def get_all_facilities_for_dropdown(db: Session):
-    """Ambil list fasilitas (hanya NID, vname, vcode) untuk dropdown."""
-    
+def get_all_active_facilities_for_dropdown(db: Session):
     results = db.query(
         models.Facility.nid,
         models.Facility.vname,
         models.Facility.vcode
     ).filter(models.Facility.nstatus == 1).order_by(models.Facility.vname.asc()).all()
-    
+
     data = [
-        {"value": nid, "label": f"{vname} ({vcode})"}
+        {"nid": nid, "vname": f"{vname}"}
+        for nid, vname, vcode in results
+    ]
+    return {"data": data}
+
+
+def get_all_facilities_for_dropdown(db: Session):
+    results = db.query(
+        models.Facility.nid,
+        models.Facility.vname,
+        models.Facility.vcode
+    ).order_by(models.Facility.vname.asc()).all()
+
+    data = [
+        {"nid": nid, "vname": f"{vname}"}
         for nid, vname, vcode in results
     ]
     return {"data": data}

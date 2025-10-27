@@ -145,7 +145,7 @@ def delete_role(db: Session, role_vcode: str):
     return db_role
 
 
-def get_all_roles_for_dropdown(db: Session):
+def get_all_active_roles_for_dropdown(db: Session):
     """
     Mengambil semua data role yang aktif (nstatus=1) untuk dropdown,
     tanpa paginasi.
@@ -158,9 +158,14 @@ def get_all_roles_for_dropdown(db: Session):
     )
     return {"data": roles}
 
-def get_all_roles(db: Session):
+def get_all_roles_for_dropdown(db: Session):
     """
-    Mengambil semua data role tanpa paginasi.
+    Mengambil semua data role yang aktif (nstatus=1) untuk dropdown,
+    tanpa paginasi.
     """
-    roles = (db.query(models.Role).order_by(models.Role.vname).all())
+    roles = (
+        db.query(models.Role)
+        .order_by(models.Role.vname)
+        .all()
+    )
     return {"data": roles}

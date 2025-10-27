@@ -772,6 +772,11 @@ def delete_user(db: Session, user_vcode: str):
 # --- Fungsi Get Users for Dropdown ---
 def get_all_users_for_dropdown(db: Session):
     # Ambil user yg aktif aja (nstatus=1)
+    users = db.query(models.User).order_by(models.User.vname).all()
+    return {"data": users}
+
+def get_all_active_users_for_dropdown(db: Session):
+    # Ambil user yg aktif aja (nstatus=1)
     users = db.query(models.User).filter(models.User.nstatus == 1).order_by(models.User.vname).all()
     return {"data": users}
 

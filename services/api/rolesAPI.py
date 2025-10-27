@@ -101,6 +101,15 @@ def read_all_roles_for_dropdown(db: Session = Depends(get_db), current_user: use
     roles_data = rolesController.get_all_roles_for_dropdown(db=db)
     return roles_data
 
+@router.get("/all-active-for-dropdown/", response_model=schema.RoleDropdownResponse)
+def read_all_roles_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+    """
+    Mengambil semua data role aktif untuk keperluan dropdown.
+    """
+    check_forbidden_roles(db, current_user)
+    roles_data = rolesController.get_all_active_roles_for_dropdown(db=db)
+    return roles_data
+
 @router.get("/get-all/", response_model=List[schema.Role])
 def read_all_roles_no_pagination(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """

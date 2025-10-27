@@ -124,6 +124,14 @@ def delete_lab(db: Session, lab_vcode: str):
     return db_lab
 
 
+def get_all_active_labs_for_dropdown(db: Session):
+    labs = (
+        db.query(models.Lab)
+        .order_by(models.Lab.vname)
+        .all()
+    )
+    return {"data": labs}
+
 def get_all_labs_for_dropdown(db: Session):
     labs = (
         db.query(models.Lab)

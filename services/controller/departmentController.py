@@ -123,6 +123,14 @@ def delete_department(db: Session, department_vcode: str):
     return db_department
 
 
+def get_all_active_departments_for_dropdown(db: Session):
+    departments = (
+        db.query(models.Department)
+        .order_by(models.Department.vname)
+        .all()
+    )
+    return {"data": departments}
+
 def get_all_departments_for_dropdown(db: Session):
     departments = (
         db.query(models.Department)

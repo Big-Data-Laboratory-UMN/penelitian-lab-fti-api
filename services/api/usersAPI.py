@@ -414,6 +414,28 @@ def read_all_users_for_dropdown(
     return users_data
 
 
+@router.get("/all-active-for-dropdown/", response_model=schema.UserDropdownResponse)
+def read_all_users_for_dropdown(
+    db: Session = Depends(get_db),
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """Mengambil daftar user aktif untuk dropdown (membutuhkan hak akses)."""
+    print(f"[API /all-active-for-dropdown/] Request received from user: {current_user.vemail}")
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    print(f"[API /all-active-for-dropdown/] User roles: {user_roles}")
+
+    allowed_roles = {"SA", "ADM"} # Sesuaikan
+    if not any(role in allowed_roles for role in user_roles):
+         print(f"[API /all-active-for-dropdown/] Forbidden: User {current_user.vemail} cannot access dropdown list.")
+         raise HTTPException(
+             status_code=status.HTTP_403_FORBIDDEN,
+             detail="Anda tidak punya hak akses untuk data ini."
+         )
+
+    users_data = usersController.get_all_active_users_for_dropdown(db=db)
+    print(f"[API /all-active-for-dropdown/] Returning {len(users_data['data'])} active users for dropdown.")
+    return users_data
+
 # --- Endpoint Publik (tidak butuh autentikasi) ---
 
 @router.post("/set-initial-password", response_model=schema.User)
