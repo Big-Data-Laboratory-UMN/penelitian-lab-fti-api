@@ -63,7 +63,7 @@ def create_new_role(role: schema.RoleCreate, db: Session = Depends(get_db), curr
     """
     check_forbidden_roles(db, current_user)
     try:
-        return rolesController.create_role(db=db, role=role)
+        return rolesController.create_role(db=db, role=role, current_user=current_user)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -74,7 +74,7 @@ def update_existing_role(role_vcode: str, role: schema.RoleUpdate, db: Session =
     """
     check_forbidden_roles(db, current_user)
     try:
-        db_role = rolesController.update_role(db=db, role_vcode=role_vcode, role=role)
+        db_role = rolesController.update_role(db=db, role_vcode=role_vcode, role=role, current_user=current_user)
         if db_role is None:
             raise HTTPException(status_code=404, detail="Role not found")
         return db_role

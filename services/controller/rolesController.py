@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import rolesModel as models
-from ..schemas import rolesSchema as schema
+from ..schemas import rolesSchema as schema, usersSchema
 
 
 def get_role_by_code_and_name(db: Session, vcode: str, vname: str):
@@ -32,12 +32,13 @@ def get_role(db: Session, role_id: int):
     return db.query(models.Role).filter(models.Role.nid == role_id).first()
 
 
-def create_role(db: Session, role: schema.RoleCreate):
+def create_role(db: Session, role: schema.RoleCreate, current_user: usersSchema.User):
     """
     Fungsi untuk membuat role baru.
     Cegah duplikasi (vcode, vname) + race condition.
     """
     db_role = models.Role(**role.model_dump())
+    db_role.vcreated_by = current_user.vcode
     db_role.dsort_at = datetime.utcnow()
 
     try:
@@ -58,7 +59,7 @@ def create_role(db: Session, role: schema.RoleCreate):
             raise ValueError("The operation could not be completed. Please review your data or refresh the page and try again.")
 
 
-def update_role(db: Session, role_vcode: str, role: schema.RoleUpdate):
+def update_role(db: Session, role_vcode: str, role: schema.RoleUpdate, current_user: usersSchema.User):
     """
     Fungsi untuk mengupdate role yang sudah ada berdasarkan VCODE.
     """
@@ -70,7 +71,7 @@ def update_role(db: Session, role_vcode: str, role: schema.RoleUpdate):
     db_role.vname = role.vname
     db_role.vdesc = role.vdesc
     db_role.nstatus = role.nstatus
-    db_role.vmodified_by = role.vmodified_by
+    db_role.vmodified_by = current_user.vcode
     db_role.dsort_at = datetime.utcnow()
 
     try:
