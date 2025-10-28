@@ -115,11 +115,11 @@ def get_facility_labs(
     return {"data": data, "total": total}
 
 
-def delete_facility_lab(db: Session, facility_lab_vcode: str):
+def delete_facility_lab(db: Session, facility_lab_vcode: str, current_user: str):
     db_facility_lab = get_facility_lab_by_code(db, vcode=facility_lab_vcode)
     if db_facility_lab:
         db_facility_lab.nstatus = 0
-        db_facility_lab.vmodified_by = "system"
+        db_facility_lab.vmodified_by = current_user
         db_facility_lab.dsort_at = datetime.utcnow()
         db.commit()
         db.refresh(db_facility_lab)

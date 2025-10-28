@@ -132,14 +132,14 @@ def get_roles(
     return {"data": data, "total": total}
 
 
-def delete_role(db: Session, role_vcode: str):
+def delete_role(db: Session, role_vcode: str, current_user: usersSchema.User):
     """
     Melakukan soft delete berdasarkan VCODE dengan mengubah nstatus menjadi 0 (Inactive).
     """
     db_role = db.query(models.Role).filter(models.Role.vcode == role_vcode).first()
     if db_role:
         db_role.nstatus = 0
-        db_role.vmodified_by = "system"
+        db_role.vmodified_by = current_user.vcode
         db_role.dsort_at = datetime.utcnow()
         db.commit()
         db.refresh(db_role)

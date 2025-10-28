@@ -13,6 +13,14 @@ def get_user_access(db: Session, user_access_id: int):
     return db.query(models.UserAccess).filter(models.UserAccess.nid == user_access_id).first()
 
 def create_user_access(db: Session, user_access: schema.UserAccessCreate):
+
+    existing_user_assignment = db.query(models.UserAccess).filter(
+        models.UserAccess.nid_user == user_access.nid_user
+    ).first()
+    
+    if existing_user_assignment:
+        raise ValueError("Failed to save. This user already has an access assignment. Only one access assignment per user is allowed.")
+    
     db_user_access = models.UserAccess(**user_access.model_dump())
     db_user_access.dsort_at = datetime.utcnow()
 
@@ -28,18 +36,27 @@ def create_user_access(db: Session, user_access: schema.UserAccessCreate):
         if 'unique constraint' in error_info or 'duplicate entry' in error_info:
             if 'vcode' in error_info:
                  raise ValueError("Failed to save. The provided Code is already in use.")
+            # Ini bakal ke-trigger juga kalo lu set UNIQUE constraint di DB
+            elif 'nid_user' in error_info:
+                 raise ValueError("Failed to save. This user already has an access assignment.")
             else:
                  raise ValueError("Failed to save. The provided user access combination is already in use.")
         else:
             raise ValueError("The operation could not be completed. Please review your data or refresh the page and try again.")
 
 def update_user_access(db: Session, user_access_vcode: str, user_access: schema.UserAccessUpdate):
-    """
-    Mengupdate relasi role-permission yang sudah ada.
-    """
     db_user_access = get_user_access_by_code(db, vcode=user_access_vcode)
     if not db_user_access:
         return None
+
+    if user_access.nid_user != db_user_access.nid_user:
+        existing_user_assignment = db.query(models.UserAccess).filter(
+            models.UserAccess.nid_user == user_access.nid_user,
+            models.UserAccess.nid != db_user_access.nid 
+        ).first()
+        
+        if existing_user_assignment:
+            raise ValueError("Failed to update. The new user ID is already assigned to another access record. Only one access assignment per user is allowed.")
 
     db_user_access.vcode = user_access.vcode
     db_user_access.nid_role = user_access.nid_role
@@ -61,6 +78,8 @@ def update_user_access(db: Session, user_access_vcode: str, user_access: schema.
         if 'unique constraint' in error_info or 'duplicate entry' in error_info:
             if 'vcode' in error_info:
                  raise ValueError("Failed to update. The provided Code is already in use.")
+            elif 'nid_user' in error_info:
+                 raise ValueError("Failed to update. This user already has an access assignment.")
             else:
                  raise ValueError("Failed to save. The provided user access combination is already in use.")
         else:
@@ -126,11 +145,11 @@ def get_user_access(
     return {"data": data, "total": total}
 
 
-def delete_user_access(db: Session, user_access_vcode: str):
+def delete_user_access(db: Session, user_access_vcode: str, current_user: str):
     db_user_access = get_user_access_by_code(db, vcode=user_access_vcode)
     if db_user_access:
         db_user_access.nstatus = 0
-        db_user_access.vmodified_by = "system"
+        db_user_access.vmodified_by = current_user
         db_user_access.dsort_at = datetime.utcnow()
         db.commit()
         db.refresh(db_user_access)

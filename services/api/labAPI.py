@@ -59,7 +59,8 @@ def get_lab_by_id(lab_id: int, db: Session = Depends(get_db), current_user: user
 def create_new_lab(lab: schema.LabCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
-        return labController.create_lab(db=db, lab=lab)
+        lab.vcreated_by = current_user.vcode
+        return labController.create_lab(db=db, lab=lab, current_user=current_user)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -67,7 +68,8 @@ def create_new_lab(lab: schema.LabCreate, db: Session = Depends(get_db), current
 def update_existing_lab(lab_vcode: str, lab: schema.LabUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
-        db_lab = labController.update_lab(db=db, lab_vcode=lab_vcode, lab=lab)
+        lab.vmodified_by = current_user.vcode
+        db_lab = labController.update_lab(db=db, lab_vcode=lab_vcode, lab=lab, current_user=current_user)
         if db_lab is None:
             raise HTTPException(status_code=404, detail="Lab not found")
         return db_lab
@@ -77,7 +79,7 @@ def update_existing_lab(lab_vcode: str, lab: schema.LabUpdate, db: Session = Dep
 @router.delete("/{lab_vcode}", status_code=status.HTTP_204_NO_CONTENT)
 def soft_delete_lab(lab_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
-    lab = labController.delete_lab(db=db, lab_vcode=lab_vcode)
+    lab = labController.delete_lab(db=db, lab_vcode=lab_vcode, current_user=current_user)
     if lab is None:
         raise HTTPException(status_code=404, detail="Lab not found")
     return

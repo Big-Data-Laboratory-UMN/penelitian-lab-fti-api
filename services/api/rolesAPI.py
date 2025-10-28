@@ -87,7 +87,7 @@ def soft_delete_role(role_vcode: str, db: Session = Depends(get_db), current_use
     Melakukan soft delete pada role berdasarkan VCODE.
     """
     check_forbidden_roles(db, current_user)
-    role = rolesController.delete_role(db=db, role_vcode=role_vcode)
+    role = rolesController.delete_role(db=db, role_vcode=role_vcode, current_user=current_user)
     if role is None:
         raise HTTPException(status_code=404, detail="Role not found")
     return

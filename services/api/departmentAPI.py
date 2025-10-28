@@ -57,7 +57,7 @@ def get_department_by_id(department_id: int, db: Session = Depends(get_db), curr
 def create_new_department(department: schema.DepartmentCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
-        return departmentController.create_department(db=db, department=department)
+        return departmentController.create_department(db=db, department=department, current_user=current_user)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -65,7 +65,7 @@ def create_new_department(department: schema.DepartmentCreate, db: Session = Dep
 def update_existing_department(department_vcode: str, department: schema.DepartmentUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
-        db_department = departmentController.update_department(db=db, department_vcode=department_vcode, department=department)
+        db_department = departmentController.update_department(db=db, department_vcode=department_vcode, department=department, current_user=current_user)
         if db_department is None:
             raise HTTPException(status_code=404, detail="Department not found")
         return db_department
@@ -75,7 +75,7 @@ def update_existing_department(department_vcode: str, department: schema.Departm
 @router.delete("/{department_vcode}", status_code=status.HTTP_204_NO_CONTENT)
 def soft_delete_department(department_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
-    department = departmentController.delete_department(db=db, department_vcode=department_vcode)
+    department = departmentController.delete_department(db=db, department_vcode=department_vcode, current_user=current_user)
     if department is None:
         raise HTTPException(status_code=404, detail="Department not found")
     return

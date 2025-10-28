@@ -63,6 +63,7 @@ def get_user_access_by_id(user_access_id: int, db: Session = Depends(get_db), cu
 def create_new_user_access(user_access: schema.UserAccessCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
+        user_access.vcreated_by = current_user.vcode
         return userAccessController.create_user_access(db=db, user_access=user_access)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -71,6 +72,7 @@ def create_new_user_access(user_access: schema.UserAccessCreate, db: Session = D
 def update_existing_user_access(user_access_vcode: str, user_access: schema.UserAccessUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
+        user_access.vmodified_by = current_user.vcode
         db_user_access = userAccessController.update_user_access(db=db, user_access_vcode=user_access_vcode, user_access=user_access)
         if db_user_access is None:
             raise HTTPException(status_code=404, detail="User access assignment not found")
@@ -81,7 +83,7 @@ def update_existing_user_access(user_access_vcode: str, user_access: schema.User
 @router.delete("/{user_access_vcode}", status_code=status.HTTP_204_NO_CONTENT)
 def soft_delete_user_access(user_access_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
-    user_access = userAccessController.delete_user_access(db=db, user_access_vcode=user_access_vcode)
+    user_access = userAccessController.delete_user_access(db=db, user_access_vcode=user_access_vcode, current_user=current_user.vcode)
     if user_access is None:
         raise HTTPException(status_code=404, detail="User access assignment not found")
     return

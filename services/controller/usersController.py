@@ -747,14 +747,14 @@ def get_users(
     return {"data": data, "total": total}
 
 # --- Fungsi Delete User (Soft Delete ---
-def delete_user(db: Session, user_vcode: str):
+def delete_user(db: Session, user_vcode: str, current_user: str):
     db_user = get_user_by_code(db, user_code=user_vcode)
     if db_user:
         if db_user.nstatus == 0:
             print(f"User {user_vcode} is already inactive.")
             return db_user # Kembalikan aja user yg udah inactive
         db_user.nstatus = 0 # Set jadi Inactive
-        db_user.vmodified_by = "system-delete" # Tandai siapa yg delete
+        db_user.vmodified_by = current_user
         db_user.dsort_at = datetime.utcnow()
         try:
              db.commit()

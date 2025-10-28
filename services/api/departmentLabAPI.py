@@ -59,7 +59,7 @@ def get_department_lab_by_id(department_lab_id: int, db: Session = Depends(get_d
 def create_new_department_lab(department_lab: schema.DepartmentLabCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
-        return departmentLabController.create_department_lab(db=db, department_lab=department_lab)
+        return departmentLabController.create_department_lab(db=db, department_lab=department_lab, current_user=current_user)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -67,7 +67,7 @@ def create_new_department_lab(department_lab: schema.DepartmentLabCreate, db: Se
 def update_existing_department_lab(department_lab_vcode: str, department_lab: schema.DepartmentLabUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
-        db_department_lab = departmentLabController.update_department_lab(db=db, department_lab_vcode=department_lab_vcode, department_lab=department_lab)
+        db_department_lab = departmentLabController.update_department_lab(db=db, department_lab_vcode=department_lab_vcode, department_lab=department_lab, current_user=current_user)
         if db_department_lab is None:
             raise HTTPException(status_code=404, detail="Department Lab assignment not found")
         return db_department_lab
@@ -77,7 +77,7 @@ def update_existing_department_lab(department_lab_vcode: str, department_lab: sc
 @router.delete("/{department_lab_vcode}", status_code=status.HTTP_204_NO_CONTENT)
 def soft_delete_department_lab(department_lab_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
-    department_lab = departmentLabController.delete_department_lab(db=db, department_lab_vcode=department_lab_vcode)
+    department_lab = departmentLabController.delete_department_lab(db=db, department_lab_vcode=department_lab_vcode, current_user=current_user)
     if department_lab is None:
         raise HTTPException(status_code=404, detail="Department Lab assignment not found")
     return

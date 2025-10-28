@@ -69,6 +69,7 @@ def create_new_permission(permission: schema.PermissionCreate, db: Session = Dep
     """
     check_forbidden_roles(db, current_user)
     try:
+        permission.vcreated_by = current_user.vcode
         return permissionsController.create_permission(db=db, permission=permission)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -81,6 +82,7 @@ def update_existing_permission(permission_vcode: str, permission: schema.Permiss
     """
     check_forbidden_roles(db, current_user)
     try:
+        permission.vmodified_by = current_user.vcode
         db_permission = permissionsController.update_permission(db=db, permission_vcode=permission_vcode, permission=permission)
         if db_permission is None:
             raise HTTPException(status_code=404, detail="Permission not found")

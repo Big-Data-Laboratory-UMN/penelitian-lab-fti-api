@@ -59,6 +59,7 @@ def get_facility_lab_by_id(facility_lab_id: int, db: Session = Depends(get_db), 
 def create_new_facility_lab(facility_lab: schema.FacilityLabCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
+        facility_lab.vcreated_by = current_user.vcode
         return labFacilityController.create_facility_lab(db=db, facility_lab=facility_lab)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -67,6 +68,7 @@ def create_new_facility_lab(facility_lab: schema.FacilityLabCreate, db: Session 
 def update_existing_facility_lab(facility_lab_vcode: str, facility_lab: schema.FacilityLabUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
+        facility_lab.vmodified_by = current_user.vcode
         db_facility_lab = labFacilityController.update_facility_lab(db=db, facility_lab_vcode=facility_lab_vcode, facility_lab=facility_lab)
         if db_facility_lab is None:
             raise HTTPException(status_code=404, detail="Facility Lab assignment not found")
@@ -77,7 +79,7 @@ def update_existing_facility_lab(facility_lab_vcode: str, facility_lab: schema.F
 @router.delete("/{facility_lab_vcode}", status_code=status.HTTP_204_NO_CONTENT)
 def soft_delete_facility_lab(facility_lab_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
-    facility_lab = labFacilityController.delete_facility_lab(db=db, facility_lab_vcode=facility_lab_vcode)
+    facility_lab = labFacilityController.delete_facility_lab(db=db, facility_lab_vcode=facility_lab_vcode, current_user=current_user.vcode)
     if facility_lab is None:
         raise HTTPException(status_code=404, detail="Facility Lab assignment not found")
     return

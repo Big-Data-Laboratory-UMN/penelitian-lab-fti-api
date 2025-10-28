@@ -234,6 +234,7 @@ async def create_user_from_admin_panel(
         )
 
     try:
+        user_data.vcreated_by = current_user.vcode
         new_user = await usersController.create_user_by_admin(
             db=db, user_data=user_data, app=request.app, db_factory=SessionLocal
         )
@@ -276,6 +277,7 @@ async def update_existing_user(
         )
 
     try:
+        user_update_data.vmodified_by = current_user.vcode
         db_user = await usersController.update_user(
             db=db, user_vcode=user_vcode, user=user_update_data, app=request.app, db_factory=SessionLocal
         )
@@ -319,7 +321,7 @@ def soft_delete_user(
              detail="Tidak dapat menghapus akun sendiri."
          )
 
-    deleted_user = usersController.delete_user(db=db, user_vcode=user_vcode)
+    deleted_user = usersController.delete_user(db=db, user_vcode=user_vcode, current_user=current_user.vcode)
 
     if deleted_user is None or deleted_user.nstatus != 0:
         print(f"[API DELETE /users/{user_vcode}] Delete failed: User not found or internal error during delete.")

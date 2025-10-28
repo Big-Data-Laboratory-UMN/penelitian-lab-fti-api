@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import departmentModel as models
-from ..schemas import departmentSchema as schema
+from ..schemas import departmentSchema as schema, usersSchema
 
 
 def get_department_by_code_and_name(db: Session, vcode: str, vname: str):
@@ -23,8 +23,9 @@ def get_department(db: Session, department_id: int):
     return db.query(models.Department).filter(models.Department.nid == department_id).first()
 
 
-def create_department(db: Session, department: schema.DepartmentCreate):
+def create_department(db: Session, department: schema.DepartmentCreate, current_user: usersSchema.User):
     db_department = models.Department(**department.model_dump())
+    db_department.vcreated_by = current_user.vcode
     db_department.dsort_at = datetime.utcnow()
 
     try:
@@ -45,7 +46,7 @@ def create_department(db: Session, department: schema.DepartmentCreate):
             raise ValueError("The operation could not be completed. Please review your data or refresh the page and try again.")
 
 
-def update_department(db: Session, department_vcode: str, department: schema.DepartmentUpdate):
+def update_department(db: Session, department_vcode: str, department: schema.DepartmentUpdate, current_user: usersSchema.User):
     db_department = get_department_by_code(db, department_code=department_vcode)
     if not db_department:
         return None
@@ -54,7 +55,7 @@ def update_department(db: Session, department_vcode: str, department: schema.Dep
     db_department.vname = department.vname
     db_department.vdesc = department.vdesc
     db_department.nstatus = department.nstatus
-    db_department.vmodified_by = department.vmodified_by
+    db_department.vmodified_by = current_user.vcode
     db_department.dsort_at = datetime.utcnow()
 
     try:
@@ -112,11 +113,11 @@ def get_departments(
     return {"data": data, "total": total}
 
 
-def delete_department(db: Session, department_vcode: str):
+def delete_department(db: Session, department_vcode: str, current_user: usersSchema.User):
     db_department = db.query(models.Department).filter(models.Department.vcode == department_vcode).first()
     if db_department:
         db_department.nstatus = 0
-        db_department.vmodified_by = "system"
+        db_department.vmodified_by = current_user.vcode
         db_department.dsort_at = datetime.utcnow()
         db.commit()
         db.refresh(db_department)

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import labModel as models
-from ..schemas import labSchema as schema
+from ..schemas import labSchema as schema, usersSchema
 
 
 def get_lab_by_code_and_name(db: Session, vcode: str, vname: str):
@@ -23,8 +23,9 @@ def get_lab(db: Session, lab_id: int):
     return db.query(models.Lab).filter(models.Lab.nid == lab_id).first()
 
 
-def create_lab(db: Session, lab: schema.LabCreate):
+def create_lab(db: Session, lab: schema.LabCreate, current_user: usersSchema.User):
     db_lab = models.Lab(**lab.model_dump())
+    db_lab.vcreated_by = current_user.vcode
     db_lab.dsort_at = datetime.utcnow()
 
     try:
@@ -45,7 +46,7 @@ def create_lab(db: Session, lab: schema.LabCreate):
             raise ValueError("The operation could not be completed. Please review your data or refresh the page and try again.")
 
 
-def update_lab(db: Session, lab_vcode: str, lab: schema.LabUpdate):
+def update_lab(db: Session, lab_vcode: str, lab: schema.LabUpdate, current_user: usersSchema.User):
     db_lab = get_lab_by_code(db, lab_code=lab_vcode)
     if not db_lab:
         return None
@@ -55,7 +56,7 @@ def update_lab(db: Session, lab_vcode: str, lab: schema.LabUpdate):
     db_lab.vdesc = lab.vdesc
     db_lab.ncapacity = lab.ncapacity
     db_lab.nstatus = lab.nstatus
-    db_lab.vmodified_by = lab.vmodified_by
+    db_lab.vmodified_by = current_user.vcode
     db_lab.dsort_at = datetime.utcnow()
 
     try:
@@ -113,11 +114,11 @@ def get_labs(
     return {"data": data, "total": total}
 
 
-def delete_lab(db: Session, lab_vcode: str):
+def delete_lab(db: Session, lab_vcode: str, current_user: usersSchema.User):
     db_lab = db.query(models.Lab).filter(models.Lab.vcode == lab_vcode).first()
     if db_lab:
         db_lab.nstatus = 0
-        db_lab.vmodified_by = "system"
+        db_lab.vmodified_by = current_user.vcode
         db_lab.dsort_at = datetime.utcnow()
         db.commit()
         db.refresh(db_lab)
