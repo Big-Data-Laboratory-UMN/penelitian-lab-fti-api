@@ -1,11 +1,13 @@
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
-from services.api import rolesAPI, permissionsAPI, rolesPermissionsAPI, usersAPI, labAPI, departmentAPI, userAccessAPI, departmentLabAPI, filesAPI, facilityAPI, labFacilityAPI
+from services.api import rolesAPI, permissionsAPI, rolesPermissionsAPI, usersAPI, labAPI, departmentAPI, userAccessAPI, departmentLabAPI, filesAPI, facilityAPI, labFacilityAPI, bookingAPI
 from services import models 
 from contextlib import asynccontextmanager
 from services.database import engine, Base, SessionLocal
-from services.controller import usersController
+from services.controller import usersController, bookingController
 import asyncio
+import pytz
+from datetime import datetime
 
 Base.metadata.create_all(bind=engine)
 
@@ -13,20 +15,57 @@ origins = [
     "http://localhost:3000",
 ]
 
+def check_overdue_bookings_job():
+    """
+    Fungsi wrapper yg dipanggil scheduler buat cek booking overdue.
+    """
+    # Set timezone
+    jakarta_tz = pytz.timezone("Asia/Jakarta")
+    print(f"\n[CRON JOB RUN] Running check_overdue_bookings_job at {datetime.now(jakarta_tz)}")
+    db = SessionLocal() # Bikin DB session baru
+    try:
+        # Panggil fungsi controller yg asli
+        result = bookingController.trigger_update_overdue_bookings(db)
+        print(f"[CRON JOB SUCCESS] Updated {result.get('updated_count', 0)} bookings.")
+    except Exception as e:
+        print(f"[CRON JOB FAILED] Error: {e}")
+        db.rollback() # Rollback kalo error
+    finally:
+        db.close() # Pastiin session ditutup
+    print("[CRON JOB FINISH] Job finished.")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    usersController.start_scheduler(app)
+    usersController.start_scheduler(app) 
     print("🔄 Lifespan started, scheduler initialized.")
     app.state.user_upload_locks = {}
     print("[*] Application startup: Initializing state...")
     app.state.lock_dict_lock = asyncio.Lock()
     print("[*] Application state (user_upload_locks, lock_dict_lock) initialized.")
-    yield
-    # Shutdown
+
+    if hasattr(app.state, "scheduler") and app.state.scheduler.running:
+        print("Menambahkan job 'check_overdue_bookings_job'...")
+        try:
+            app.state.scheduler.add_job(
+                check_overdue_bookings_job,    
+                'interval',                    
+                hours=1,                       
+                id="job_overdue_bookings",     
+                replace_existing=True,        
+                misfire_grace_time=60          
+            )
+            print("✅ Job 'check_overdue_bookings_job' berhasil ditambahkan, akan jalan tiap jam.")
+        except Exception as e:
+            print(f"❌ GAGAL menambahkan job 'check_overdue_bookings_job': {e}")
+    else:
+        print("⚠️ PERINGATAN: Scheduler tidak berjalan, job 'check_overdue_bookings' tidak bisa ditambahkan.")
+
+    yield 
+
     print("[*] Application shutdown: Cleaning up...")
-    if hasattr(app.state, "scheduler"):
+    if hasattr(app.state, "scheduler") and app.state.scheduler.running:
         app.state.scheduler.shutdown(wait=False)
+        print("Scheduler dimatikan.")
 
 
 app = FastAPI(
@@ -60,3 +99,4 @@ app.include_router(userAccessAPI.router)
 app.include_router(filesAPI.router)
 app.include_router(facilityAPI.router)
 app.include_router(labFacilityAPI.router)
+app.include_router(bookingAPI.router)

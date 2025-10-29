@@ -9,6 +9,7 @@ from sqlalchemy import (
 )
 from datetime import datetime
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from ..database import Base
 
 class LabFacility(Base):
@@ -28,6 +29,9 @@ class LabFacility(Base):
     dcreated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     dmodified_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
     dsort_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    bookings = relationship("Booking", back_populates="lab_facility")
+    lab = relationship("Lab")
+    facility = relationship("Facility")
 
     __table_args__ = (
         CheckConstraint('nstatus IN (0, 1)', name='chk_facility_lab_nstatus_values'),

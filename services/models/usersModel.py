@@ -7,6 +7,7 @@ from sqlalchemy import (
     Text,
     CheckConstraint 
 )
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
 
@@ -30,6 +31,7 @@ class User(Base):
     dcreated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     dmodified_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
     dsort_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    bookings = relationship("Booking", back_populates="user")
     
     __table_args__ = (
         CheckConstraint(

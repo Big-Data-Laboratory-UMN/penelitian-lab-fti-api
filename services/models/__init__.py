@@ -10,3 +10,5 @@ from .tokenModel import Token
 from .facilityModel import Facility
 from .labFacilityModel import LabFacility
 from .filesModel import Files
+from .bookingModel import Booking
+from .bookingFilesModel import BookingFile
