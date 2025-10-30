@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import userAccessModel as models
-from ..models import rolesModel, usersModel, departmentModel
+from ..models import rolesModel, usersModel, departmentModel, labModel 
 from ..schemas import userAccessSchema as schema
 
 def get_user_access_by_code(db: Session, vcode: str):
@@ -15,11 +15,14 @@ def get_user_access(db: Session, user_access_id: int):
 def create_user_access(db: Session, user_access: schema.UserAccessCreate):
 
     existing_user_assignment = db.query(models.UserAccess).filter(
-        models.UserAccess.nid_user == user_access.nid_user
+        models.UserAccess.nid_user == user_access.nid_user,
+        models.UserAccess.nid_role == user_access.nid_role,
+        models.UserAccess.nid_department == user_access.nid_department,
+        models.UserAccess.nid_lab == user_access.nid_lab,
     ).first()
     
     if existing_user_assignment:
-        raise ValueError("Failed to save. This user already has an access assignment. Only one access assignment per user is allowed.")
+        raise ValueError("Failed to save. This exact access assignment (User, Role, Dept, Lab) already exists.")
     
     db_user_access = models.UserAccess(**user_access.model_dump())
     db_user_access.dsort_at = datetime.utcnow()
@@ -36,9 +39,6 @@ def create_user_access(db: Session, user_access: schema.UserAccessCreate):
         if 'unique constraint' in error_info or 'duplicate entry' in error_info:
             if 'vcode' in error_info:
                  raise ValueError("Failed to save. The provided Code is already in use.")
-            # Ini bakal ke-trigger juga kalo lu set UNIQUE constraint di DB
-            elif 'nid_user' in error_info:
-                 raise ValueError("Failed to save. This user already has an access assignment.")
             else:
                  raise ValueError("Failed to save. The provided user access combination is already in use.")
         else:
@@ -49,19 +49,22 @@ def update_user_access(db: Session, user_access_vcode: str, user_access: schema.
     if not db_user_access:
         return None
 
-    if user_access.nid_user != db_user_access.nid_user:
-        existing_user_assignment = db.query(models.UserAccess).filter(
-            models.UserAccess.nid_user == user_access.nid_user,
-            models.UserAccess.nid != db_user_access.nid 
-        ).first()
-        
-        if existing_user_assignment:
-            raise ValueError("Failed to update. The new user ID is already assigned to another access record. Only one access assignment per user is allowed.")
+    existing_user_assignment = db.query(models.UserAccess).filter(
+        models.UserAccess.nid_user == user_access.nid_user,
+        models.UserAccess.nid_role == user_access.nid_role,
+        models.UserAccess.nid_department == user_access.nid_department,
+        models.UserAccess.nid_lab == user_access.nid_lab,
+        models.UserAccess.nid != db_user_access.nid 
+    ).first()
+    
+    if existing_user_assignment:
+        raise ValueError("Failed to update. This exact access assignment (User, Role, Dept, Lab) already exists for another record.")
 
     db_user_access.vcode = user_access.vcode
     db_user_access.nid_role = user_access.nid_role
     db_user_access.nid_user = user_access.nid_user
     db_user_access.nid_department = user_access.nid_department
+    db_user_access.nid_lab = user_access.nid_lab 
     db_user_access.nstatus = user_access.nstatus
     db_user_access.vmodified_by = user_access.vmodified_by
     db_user_access.dsort_at = datetime.utcnow()
@@ -78,8 +81,6 @@ def update_user_access(db: Session, user_access_vcode: str, user_access: schema.
         if 'unique constraint' in error_info or 'duplicate entry' in error_info:
             if 'vcode' in error_info:
                  raise ValueError("Failed to update. The provided Code is already in use.")
-            elif 'nid_user' in error_info:
-                 raise ValueError("Failed to update. This user already has an access assignment.")
             else:
                  raise ValueError("Failed to save. The provided user access combination is already in use.")
         else:
@@ -94,6 +95,7 @@ def get_user_access(
     nid_role: int | None = None, 
     nid_user: int | None = None,
     nid_department: int | None = None,
+    nid_lab: int | None = None, 
     vcode: str | None = None,
 ):
     query = db.query(
@@ -101,12 +103,15 @@ def get_user_access(
         rolesModel.Role.vname.label("role_name"),
         usersModel.User.vname.label("user_name"),
         departmentModel.Department.vname.label("department_name"),
+        labModel.Lab.vname.label("lab_name") 
     ).join(
         rolesModel.Role, models.UserAccess.nid_role == rolesModel.Role.nid, isouter=True
     ).join(
         usersModel.User, models.UserAccess.nid_user == usersModel.User.nid, isouter=True
     ).join(
         departmentModel.Department, models.UserAccess.nid_department == departmentModel.Department.nid, isouter=True
+    ).join(
+        labModel.Lab, models.UserAccess.nid_lab == labModel.Lab.nid, isouter=True 
     )
     if search:
         search_filter = or_(
@@ -114,6 +119,7 @@ def get_user_access(
             rolesModel.Role.vname.ilike(f"%{search}%"),
             usersModel.User.vname.ilike(f"%{search}%"),
             departmentModel.Department.vname.ilike(f"%{search}%"),
+            labModel.Lab.vname.ilike(f"%{search}%") 
         )
         query = query.filter(search_filter)
         
@@ -126,6 +132,8 @@ def get_user_access(
         query = query.filter(models.UserAccess.nid_user == nid_user)
     if nid_department is not None: 
         query = query.filter(models.UserAccess.nid_department == nid_department)
+    if nid_lab is not None: # [NEW] Filter by lab
+        query = query.filter(models.UserAccess.nid_lab == nid_lab)
     if vcode:
         query = query.filter(models.UserAccess.vcode.ilike(f"%{vcode}%"))
 
@@ -135,11 +143,12 @@ def get_user_access(
     results = query.offset(skip).limit(limit).all()
     
     data = []
-    for mapping, role_name, user_name, department_name in results:
+    for mapping, role_name, user_name, department_name, lab_name in results:
         mapping_data = mapping.__dict__
         mapping_data['role_name'] = role_name or '(Name Not Found)'
         mapping_data['user_name'] = user_name or '(Name Not Found)'
         mapping_data['department_name'] = department_name or '(Name Not Found)'
+        mapping_data['lab_name'] = lab_name or '(N/A)' 
         data.append(mapping_data)
 
     return {"data": data, "total": total}
@@ -165,21 +174,15 @@ def get_all_user_access_for_dropdown(db: Session):
     return {"data": user_access}
 
 def get_user_roles_by_user_id(db: Session, user_id: int) -> list[str]:
-    """
-    Mengambil daftar kode role (vcode) yang dimiliki oleh user berdasarkan user ID.
-    Mengembalikan list of string (kode role), bisa kosong jika user tidak punya role aktif.
-    """
     user_access_list = (
         db.query(models.UserAccess.nid_role, rolesModel.Role.vcode)
         .join(rolesModel.Role, models.UserAccess.nid_role == rolesModel.Role.nid)
         .filter(
             models.UserAccess.nid_user == user_id,
-            models.UserAccess.nstatus == 1, # Hanya ambil relasi akses yang aktif
-            rolesModel.Role.nstatus == 1 # Pastikan role-nya juga aktif
+            models.UserAccess.nstatus == 1, 
+            rolesModel.Role.nstatus == 1 
         )
         .all()
     )
-
-    # Ambil vcode-nya aja dari hasil query
     role_codes = [role.vcode for role in user_access_list]
     return role_codes

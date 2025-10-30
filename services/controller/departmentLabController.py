@@ -134,3 +134,24 @@ def get_all_department_labs_for_dropdown(db: Session):
         .all()
     )
     return {"data": departmentLab}
+
+def get_labs_by_department_for_dropdown(db: Session, department_id: int):
+    try:
+        labs = (
+            db.query(labModel.Lab.nid, labModel.Lab.vname) 
+            .join(models.DepartmentLab, models.DepartmentLab.nid_lab == labModel.Lab.nid)
+            .filter(
+                models.DepartmentLab.nid_department == department_id,
+                labModel.Lab.nstatus == 1 
+            )
+            .order_by(labModel.Lab.vname)
+            .all()
+        )
+        
+        # Format datanya
+        formatted_labs = [{"nid": lab.nid, "vname": lab.vname} for lab in labs]
+        
+        return {"data": formatted_labs}
+
+    except Exception as e:
+        raise ValueError(str(e))

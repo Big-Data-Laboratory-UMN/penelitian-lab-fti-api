@@ -1,3 +1,5 @@
+# services/schemas/userAccessSchema.py
+
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
@@ -6,14 +8,26 @@ class UserAccessCreate(BaseModel):
     vcode: str
     nid_user: int
     nid_role: int
-    nid_department: int
+    
+    # [MODIFIED] Dibuat optional
+    nid_department: Optional[int] = None 
+    
+    # [NEW] Ditambah
+    nid_lab: Optional[int] = None 
+    
     vcreated_by: str = "system"
 
 class UserAccessUpdate(BaseModel):
     vcode: str
     nid_user: int
     nid_role: int
-    nid_department: int
+    
+    # [MODIFIED] Dibuat optional
+    nid_department: Optional[int] = None 
+    
+    # [NEW] Ditambah
+    nid_lab: Optional[int] = None 
+    
     nstatus: int
     vmodified_by: str = "system"
 
@@ -22,7 +36,13 @@ class UserAccess(BaseModel):
     vcode: str
     nid_user: int
     nid_role: int
-    nid_department: int
+    
+    # [MODIFIED] Dibuat optional
+    nid_department: Optional[int] = None 
+    
+    # [NEW] Ditambah
+    nid_lab: Optional[int] = None 
+    
     nstatus: int
     dcreated_at: Optional[datetime] = None
     vcreated_by: Optional[str] = None

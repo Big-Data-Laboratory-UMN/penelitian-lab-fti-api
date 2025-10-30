@@ -1,32 +1,41 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import (
+    APIRouter, Depends, HTTPException, Query,
+    Form, File, UploadFile, Request
+)
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from datetime import datetime
 
-# Import database dependency
 from ..database import get_db
 
-# Import controllers (logika bisnis)
-from ..controller import bookingController, usersController
+from ..controller import bookingController, usersController, fileController
 
-# Import models (buat cek role)
 from ..models import rolesModel, userAccessModel
 
-# Import schemas (request body & response model)
-# [FIX] Kita butuh usersSchema buat type hint dependency
 from ..schemas import bookingSchema, usersSchema 
 
 router = APIRouter(
     prefix="/booking",
-    tags=["Booking Management"], # Nama grup di /docs Swagger
+    tags=["Booking Management"],
     responses={404: {"description": "Not found"}},
 )
 
-# --- Helper Cek Role ---
-def check_admin_or_sa(db: Session, user: usersSchema.User): # Hint pake usersSchema.User
-    """
-    Cek apakah user yg login adalah ADM atau SA.
-    Kalo bukan, lempar error 403 Forbidden.
-    """
+# [MODIFIED] Helper baru buat ngecek SEMUA role management (SA, ADM, PIC)
+def check_management_access(db: Session, user: usersSchema.User):
+    user_access_roles = db.query(rolesModel.Role.vcode).join(
+        userAccessModel.UserAccess, rolesModel.Role.nid == userAccessModel.UserAccess.nid_role
+    ).filter(
+        userAccessModel.UserAccess.nid_user == user.nid, 
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+    user_roles = {role[0] for role in user_access_roles}
+    
+    if "ADM" not in user_roles and "SA" not in user_roles and "PIC" not in user_roles:
+        raise HTTPException(status_code=403, detail="Not authorized. Management access (SA/ADM/PIC) required.")
+    return user_roles # Kita return set of roles-nya
+
+# Helper lama, tetep dipake buat yg khusus SA/ADM
+def check_admin_or_sa(db: Session, user: usersSchema.User):
     user_access_roles = db.query(rolesModel.Role.vcode).join(
         userAccessModel.UserAccess, rolesModel.Role.nid == userAccessModel.UserAccess.nid_role
     ).filter(
@@ -39,177 +48,181 @@ def check_admin_or_sa(db: Session, user: usersSchema.User): # Hint pake usersSch
         raise HTTPException(status_code=403, detail="Not authorized. Admin or Superadmin required.")
     return True
 
-# --- ENDPOINT API ---
-
 # 1. CREATE BOOKING (User)
-@router.post(
-    "/", 
-    response_model=bookingSchema.BookingSchema, 
-    status_code=201 # 201 Created
-)
-def create_booking_api(
-    booking_data: bookingSchema.BookingCreate,
+@router.post("/", response_model=bookingSchema.BookingSchema, status_code=201)
+async def create_booking_api(
+    request: Request,
+    nid_lab_facility: int = Form(...),
+    dstart: datetime = Form(...),
+    dend: datetime = Form(...),
+    vactivity: str = Form(...),
+    proposal_file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    # [FIX] Ganti nama fungsinya
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    """
-    Endpoint untuk user membuat booking baru.
-    Status default akan jadi (2) Pending.
-    """
-    return bookingController.create_booking(
-        db=db, 
-        booking_data=booking_data, 
-        current_user=current_user
+    if proposal_file.content_type != "application/pdf":
+        raise HTTPException(status_code=400, detail="File proposal harus berformat PDF.")
+    return await bookingController.create_booking(
+        db=db, current_user=current_user, request=request,
+        nid_lab_facility=nid_lab_facility, dstart=dstart, dend=dend,
+        vactivity=vactivity, proposal_file=proposal_file
     )
 
-# 2. GET ALL BOOKINGS (Admin/SA)
-@router.get(
-    "/", 
-    response_model=dict # Return: {"data": [...], "total": ...}
-)
+# 2. GET ALL BOOKINGS (Admin/SA/PIC)
+@router.get("/", response_model=bookingSchema.BookingResponse)
 def read_all_bookings_api(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=30),
     vsearch: str = Query(default=""),
     db: Session = Depends(get_db),
-    # [FIX] Ganti nama fungsinya
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    """
-    [ADMIN/SA] Endpoint untuk mengambil SEMUA booking (dengan pagination & search).
-    """
-    check_admin_or_sa(db, current_user)
+    # [MODIFIED] Pake helper baru
+    user_roles = check_management_access(db, current_user)
     
     return bookingController.get_all_bookings(
         db=db, 
+        current_user=current_user, # [MODIFIED] Kirim user & roles-nya
+        user_roles=user_roles,
         skip=skip, 
         limit=limit, 
         vsearch=vsearch
     )
 
 # 3. GET MY BOOKINGS (User)
-@router.get(
-    "/my-bookings",
-    response_model=dict # Return: {"data": [...], "total": ...}
-)
+@router.get("/my-bookings", response_model=bookingSchema.BookingResponse)
 def read_my_bookings_api(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=30),
     vsearch: str = Query(default=""),
     db: Session = Depends(get_db),
-    # [FIX] Ganti nama fungsinya
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    """
-    Endpoint untuk user melihat history booking-nya sendiri.
-    """
     return bookingController.get_all_bookings_by_user(
-        db=db, 
-        current_user=current_user, 
-        skip=skip, 
-        limit=limit, 
-        vsearch=vsearch
+        db=db, current_user=current_user, skip=skip, 
+        limit=limit, vsearch=vsearch
     )
     
-# 4. GET BOOKING BY ID (Owner or Admin/SA)
-@router.get(
-    "/{booking_id}",
-    response_model=bookingSchema.BookingSchema
-)
+# 4. GET BOOKING BY ID (Owner or Admin/SA/PIC)
+@router.get("/{booking_id}", response_model=bookingSchema.BookingSchema)
 def read_booking_by_id_api(
     booking_id: int,
     db: Session = Depends(get_db),
-    # [FIX] Ganti nama fungsinya
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    """
-    Endpoint untuk mengambil detail 1 booking.
-    Hanya bisa diakses oleh Admin/SA atau user yg membuat booking.
-    """
     try:
-        booking_data_dict = bookingController.get_booking_by_id(db=db, booking_id=booking_id)
+        booking_data = bookingController.get_booking_by_id(db=db, booking_id=booking_id)
     except HTTPException as e:
         if e.status_code == 404:
             raise HTTPException(status_code=404, detail="Booking not found")
         raise e
         
-    # --- Security Check di API Layer ---
-    user_access_roles = db.query(rolesModel.Role.vcode).join(
-        userAccessModel.UserAccess, rolesModel.Role.nid == userAccessModel.UserAccess.nid_role
-    ).filter(
-        userAccessModel.UserAccess.nid_user == current_user.nid, 
-        userAccessModel.UserAccess.nstatus == 1
-    ).all()
-    user_roles = {role[0] for role in user_access_roles}
-    is_admin_or_sa = "ADM" in user_roles or "SA" in user_roles
-    
-    is_owner = booking_data_dict["nid_user"] == current_user.nid
+    is_owner = booking_data.nid_user == current_user.nid
+    if is_owner:
+        return booking_data
 
-    if not is_admin_or_sa and not is_owner:
+    try:
+        user_roles = check_management_access(db, current_user)
+    except HTTPException:
         raise HTTPException(status_code=403, detail="Not authorized to view this booking")
-        
-    return booking_data_dict 
 
-# 5. UPDATE BOOKING (Status or Documentation)
-@router.put(
-    "/{booking_id}",
-    response_model=bookingSchema.BookingSchema
-)
-def update_booking_api(
+    # [MODIFIED] Cek scope di API layer
+    booked_lab_id = booking_data.lab_facility.nid_lab
+    is_scoped = bookingController.check_booking_lab_scope(
+        db=db,
+        current_user=current_user,
+        user_roles=user_roles,
+        booking_lab_id=booked_lab_id
+    )
+    
+    if not is_scoped:
+         raise HTTPException(status_code=403, detail="Not authorized. Anda hanya bisa melihat booking di Lab yang Anda kelola.")
+
+    return booking_data 
+
+# 5. APPROVE BOOKING (Admin/SA/PIC)
+@router.post("/{booking_id}/approve", response_model=bookingSchema.BookingSchema)
+async def approve_booking_api(
+    request: Request,
     booking_id: int,
-    update_data: bookingSchema.BookingUpdate,
     db: Session = Depends(get_db),
-    # [FIX] Ganti nama fungsinya
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    """
-    Endpoint untuk update booking.
-    (Semua permission logic SUDAH di-handle di controller).
-    """
-    return bookingController.update_booking(
-        db=db, 
-        booking_id=booking_id, 
-        update_data=update_data, 
-        current_user=current_user
+    check_management_access(db, current_user)
+    return await bookingController.update_booking(
+        db=db, booking_id=booking_id, current_user=current_user,
+        request=request, nstatus=1, doc_images=[], doc_article=None
     )
 
-# 6. DELETE BOOKING (Admin/SA)
-@router.delete(
-    "/{booking_id}",
-    response_model=dict
-)
+# 6. REJECT BOOKING (Admin/SA/PIC)
+@router.post("/{booking_id}/reject", response_model=bookingSchema.BookingSchema)
+async def reject_booking_api(
+    request: Request,
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    check_management_access(db, current_user)
+    return await bookingController.update_booking(
+        db=db, booking_id=booking_id, current_user=current_user,
+        request=request, nstatus=0, doc_images=[], doc_article=None
+    )
+
+# 7. UPDATE BOOKING (User upload docs)
+@router.put("/{booking_id}", response_model=bookingSchema.BookingSchema)
+async def update_booking_api(
+    request: Request,
+    booking_id: int,
+    nstatus: Optional[int] = Form(None),
+    doc_images: List[UploadFile] = File([]),
+    doc_article: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # [MODIFIED] Endpoint ini dikunci HANYA untuk upload file
+    if nstatus is not None:
+        raise HTTPException(status_code=400, detail="Ganti status harus via endpoint /approve or /reject.")
+
+    allowed_image_types = ["image/jpeg", "image/png"]
+    has_doc_images = doc_images and len(doc_images) > 0 and doc_images[0].filename
+    has_doc_article = doc_article and doc_article.filename
+    if has_doc_images:
+        if len(doc_images) < 2:
+            raise HTTPException(status_code=400, detail="Harus mengupload minimal 2 file gambar dokumentasi.")
+        for img in doc_images:
+            if img.content_type not in allowed_image_types:
+                raise HTTPException(status_code=400, detail=f"File gambar {img.filename} harus berformat JPG atau PNG.")
+    if has_doc_article and doc_article.content_type != "application/pdf":
+         raise HTTPException(status_code=400, detail="File artikel dokumentasi harus berformat PDF.")
+    
+    return await bookingController.update_booking(
+        db=db, booking_id=booking_id, current_user=current_user,
+        request=request, nstatus=nstatus, doc_images=doc_images,
+        doc_article=doc_article
+    )
+
+# 8. DELETE BOOKING (Admin/SA/PIC)
+@router.delete("/{booking_id}", response_model=dict)
 def delete_booking_api(
     booking_id: int,
     db: Session = Depends(get_db),
-    # [FIX] Ganti nama fungsinya
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    """
-    [ADMIN/SA] Endpoint untuk soft-delete booking (set nstatus = 0).
-    (Permission logic SUDAH di-handle di controller).
-    """
+    # [MODIFIED] Pake helper baru
+    user_roles = check_management_access(db, current_user)
     return bookingController.delete_booking(
         db=db, 
         booking_id=booking_id, 
-        current_user=current_user
+        current_user=current_user,
+        user_roles=user_roles # [MODIFIED] Kirim roles
     )
 
-# 7. TRIGGER OVERDUE BOOKINGS (Admin/Cron)
-@router.post(
-    "/trigger-overdue",
-    response_model=dict
-)
+# 9. TRIGGER OVERDUE BOOKINGS (Admin/Cron)
+@router.post("/trigger-overdue", response_model=dict)
 def trigger_overdue_api(
     db: Session = Depends(get_db),
-    # [FIX] Ganti nama fungsinya
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    """
-    [ADMIN/CRON] Endpoint untuk mentrigger update status
-    dari (1) Approved -> (4) Waiting for Documentation
-    jika tanggal 'dend' sudah lewat.
-    """
+    # [MODIFIED] Endpoint ini tetep pake helper lama (SA/ADM only)
     check_admin_or_sa(db, current_user)
-    
     return bookingController.trigger_update_overdue_bookings(db=db)

@@ -1,8 +1,8 @@
 """'init'
 
-Revision ID: 148c8598f2af
+Revision ID: 524b4f675aa1
 Revises: 
-Create Date: 2025-10-29 11:24:26.643543
+Create Date: 2025-10-30 22:15:43.578041
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '148c8598f2af'
+revision: str = '524b4f675aa1'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -152,7 +152,8 @@ def upgrade() -> None:
     sa.Column('vcode', sa.String(length=100), nullable=False),
     sa.Column('nid_user', sa.Integer(), nullable=False),
     sa.Column('nid_role', sa.Integer(), nullable=False),
-    sa.Column('nid_department', sa.Integer(), nullable=False),
+    sa.Column('nid_department', sa.Integer(), nullable=True),
+    sa.Column('nid_lab', sa.Integer(), nullable=True),
     sa.Column('nstatus', sa.Integer(), nullable=False),
     sa.Column('vcreated_by', sa.String(length=255), nullable=False),
     sa.Column('vmodified_by', sa.String(length=255), nullable=True),
@@ -161,10 +162,11 @@ def upgrade() -> None:
     sa.Column('dsort_at', sa.DateTime(), nullable=True),
     sa.CheckConstraint('nstatus IN (0, 1)', name='chk_user_access_nstatus_values'),
     sa.ForeignKeyConstraint(['nid_department'], ['tblm_department.nid'], ),
+    sa.ForeignKeyConstraint(['nid_lab'], ['tblm_lab.nid'], ),
     sa.ForeignKeyConstraint(['nid_role'], ['tblm_roles.nid'], ),
     sa.ForeignKeyConstraint(['nid_user'], ['tbls_users.nid'], ),
     sa.PrimaryKeyConstraint('nid'),
-    sa.UniqueConstraint('nid_role', 'nid_department', 'nid_user', name='uq_user_access_combination')
+    sa.UniqueConstraint('nid_user', 'nid_role', 'nid_department', 'nid_lab', name='uq_user_access_combination')
     )
     op.create_index(op.f('ix_tblr_user_access_vcode'), 'tblr_user_access', ['vcode'], unique=True)
     op.create_table('tbls_token',
@@ -209,23 +211,24 @@ def upgrade() -> None:
     op.create_index(op.f('ix_tblr_lab_facility_vcode'), 'tblr_lab_facility', ['vcode'], unique=True)
     op.create_table('tblt_booking',
     sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
-    sa.Column('vcode', sa.String(length=100), nullable=False),
+    sa.Column('vcode', sa.String(length=100), nullable=True),
     sa.Column('nid_lab_facility', sa.Integer(), nullable=False),
     sa.Column('nid_user', sa.Integer(), nullable=False),
     sa.Column('dstart', sa.DateTime(), nullable=False),
     sa.Column('dend', sa.DateTime(), nullable=False),
-    sa.Column('vactivity', sa.Text(), nullable=False),
-    sa.Column('nstatus', sa.Integer(), nullable=False),
-    sa.Column('vcreated_by', sa.String(length=255), nullable=False),
-    sa.Column('vmodified_by', sa.String(length=255), nullable=True),
-    sa.Column('dcreated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('dmodified_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('dsort_at', sa.DateTime(), nullable=True),
-    sa.CheckConstraint('dend > dstart', name='chk_booking_dates'),
+    sa.Column('vactivity', sa.Text(), nullable=True),
+    sa.Column('nstatus', sa.Integer(), nullable=True, comment='0:Rejected, 1:Approved, 2:Pending, 3:Canceled, 4:WaitingForDoc, 5:Done'),
+    sa.Column('dapproved_at', sa.DateTime(), nullable=True),
+    sa.Column('vapproved_by', sa.String(length=100), nullable=True),
+    sa.Column('dcreated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.Column('vcreated_by', sa.String(length=100), nullable=True),
+    sa.Column('dmodified_at', sa.DateTime(), nullable=True),
+    sa.Column('vmodified_by', sa.String(length=100), nullable=True),
     sa.ForeignKeyConstraint(['nid_lab_facility'], ['tblr_lab_facility.nid'], ),
     sa.ForeignKeyConstraint(['nid_user'], ['tbls_users.nid'], ),
     sa.PrimaryKeyConstraint('nid')
     )
+    op.create_index(op.f('ix_tblt_booking_nid'), 'tblt_booking', ['nid'], unique=False)
     op.create_index(op.f('ix_tblt_booking_vcode'), 'tblt_booking', ['vcode'], unique=True)
     op.create_table('tblr_booking_files',
     sa.Column('nid', sa.Integer(), autoincrement=True, nullable=False),
@@ -255,6 +258,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_tblr_booking_files_vcode'), table_name='tblr_booking_files')
     op.drop_table('tblr_booking_files')
     op.drop_index(op.f('ix_tblt_booking_vcode'), table_name='tblt_booking')
+    op.drop_index(op.f('ix_tblt_booking_nid'), table_name='tblt_booking')
     op.drop_table('tblt_booking')
     op.drop_index(op.f('ix_tblr_lab_facility_vcode'), table_name='tblr_lab_facility')
     op.drop_table('tblr_lab_facility')

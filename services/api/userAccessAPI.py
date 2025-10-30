@@ -36,7 +36,7 @@ def read_all_user_access(
     nid_role: Optional[int] = None, 
     nid_user: Optional[int] = None,
     nid_department: Optional[int] = None,
-    # nid_lab: Optional[int] = None,
+    nid_lab: Optional[int] = None, 
     mappingCode: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
@@ -46,7 +46,7 @@ def read_all_user_access(
     user_access_data = userAccessController.get_user_access(
         db=db, skip=skip, limit=limit, search=search, nstatus=status,nid_role=nid_role,
         nid_user=nid_user, nid_department=nid_department, 
-        # nid_lab=nid_lab,
+        nid_lab=nid_lab,
         vcode=mappingCode
     )
     return user_access_data

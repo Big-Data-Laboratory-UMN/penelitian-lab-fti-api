@@ -1,37 +1,31 @@
-from sqlalchemy import CheckConstraint, Column, Integer, DateTime, ForeignKey, func, String, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func, Text
 from sqlalchemy.orm import relationship
 from ..database import Base
-from datetime import datetime 
 
 class Booking(Base):
-    __tablename__ = 'tblt_booking'
-
-    nid = Column(Integer, primary_key=True, autoincrement=True) 
-    vcode = Column(String(100), unique=True, index=True, nullable=False) 
-
-    nid_lab_facility = Column(Integer, ForeignKey('tblr_lab_facility.nid'), nullable=False) 
-
-    nid_user = Column(Integer, ForeignKey('tbls_users.nid'), nullable=False) 
-
-    dstart = Column(DateTime, nullable=False) 
-    dend = Column(DateTime, nullable=False) 
-
-    vactivity = Column(Text, nullable=False) 
-
-    nstatus = Column(Integer, nullable=False, default=2) 
+    __tablename__ = "tblt_booking"
     
-    vcreated_by = Column(String(255), nullable=False) 
-    vmodified_by = Column(String(255), nullable=True)
+    nid = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    vcode = Column(String(100), unique=True, index=True)
+    nid_lab_facility = Column(Integer, ForeignKey('tblr_lab_facility.nid'), nullable=False)
+    nid_user = Column(Integer, ForeignKey('tbls_users.nid'), nullable=False) 
+    
+    dstart = Column(DateTime, nullable=False)
+    dend = Column(DateTime, nullable=False)
+    vactivity = Column(Text, nullable=True)
+    
+    nstatus = Column(Integer, default=2, comment="0:Rejected, 1:Approved, 2:Pending, 3:Canceled, 4:WaitingForDoc, 5:Done")
+    
+    dapproved_at = Column(DateTime, nullable=True)
+    vapproved_by = Column(String(100), nullable=True)
 
-    dcreated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    dmodified_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
-    dsort_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
-
-    user = relationship("User", back_populates="bookings") 
-    lab_facility = relationship("LabFacility", back_populates="bookings") 
-
-    booking_files = relationship("BookingFile", back_populates="booking") 
-
-    __table_args__ = (
-        CheckConstraint('dend > dstart', name='chk_booking_dates'), 
-    )
+    dcreated_at = Column(DateTime, server_default=func.now())
+    vcreated_by = Column(String(100), nullable=True)
+    dmodified_at = Column(DateTime, onupdate=func.now())
+    vmodified_by = Column(String(100), nullable=True)
+    
+    # Relationships
+    user = relationship("User", back_populates="bookings")
+    lab_facility = relationship("LabFacility", back_populates="bookings")
+    booking_files = relationship("BookingFile", back_populates="booking", 
+                                 primaryjoin="and_(Booking.nid == BookingFile.nid_booking, BookingFile.nstatus == 1)")
