@@ -25,8 +25,8 @@ class BookingSchema(BookingBase):
     nid_user: int
     nstatus: int
 
-    dapproved_at: Optional[datetime] = None
-    vapproved_by: Optional[str] = None
+    dreviewed_at: Optional[datetime] = None
+    vreviewed_by: Optional[str] = None
 
     vcreated_by: str
     dcreated_at: datetime

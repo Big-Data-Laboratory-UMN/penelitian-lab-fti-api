@@ -1,4 +1,5 @@
 
+from datetime import datetime
 import os
 from typing import Optional, List
 from email.mime.text import MIMEText
@@ -22,6 +23,8 @@ MAIL_SERVER = os.getenv("MAIL_SERVER", "smtp.gmail.com")
 MAIL_USE_TLS = os.getenv("MAIL_STARTTLS", "True").lower() == "true"
 MAIL_USE_SSL = os.getenv("MAIL_SSL_TLS", "False").lower() == "true"
 
+BASE_URL_FRONTEND = os.getenv("BASE_URL_FE", "http://localhost:3000")
+
 if not all([MAIL_USERNAME, MAIL_PASSWORD, MAIL_SERVER]):
     print("[WARNING] Email configuration incomplete. Email sending will fail.")
     print(f"  MAIL_USERNAME: {'✓' if MAIL_USERNAME else '✗'}")
@@ -33,7 +36,7 @@ async def send_activation_email(
     recipient_email: str,
     user_name: str, 
     activation_token: str,
-    frontend_url: str = "http://localhost:3000"
+    frontend_url: str = BASE_URL_FRONTEND
 ) -> dict:
     """
     Send activation email with robust error handling.
@@ -178,7 +181,7 @@ async def send_email_change_verification_email(
     recipient_email: str,
     user_name: str,
     verification_token: str,
-    frontend_url: str = "http://localhost:3000"
+    frontend_url: str = BASE_URL_FRONTEND
 ) -> dict:
     """
     Kirim email verifikasi untuk perubahan alamat email.
@@ -356,3 +359,284 @@ async def test_email_configuration() -> dict:
         print(f"❌ SMTP connection test failed: {str(e)}")
     
     return results
+
+def create_styled_html_body(
+    title: str,
+    main_content: str,
+    button_text: Optional[str] = None,
+    button_url: Optional[str] = None,
+    footer_note: str = "Ini adalah email otomatis, mohon tidak membalas."
+) -> str:
+    """
+    Helper baru untuk nge-generate body HTML email yang konsisten
+    sesuai styling email aktivasi.
+    """
+    
+    # Style ini gw copy-paste dari fungsi send_activation_email lu
+    style = """
+    <style>
+        .container {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            max-width: 600px;
+        }
+        .header {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .content {
+            margin-top: 20px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #007bff;
+            color: #ffffff;
+            padding: 12px 25px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #888;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 5px;
+        }
+    </style>
+    """
+    
+    # Bikin tombol kalo ada
+    button_html = ""
+    if button_text and button_url:
+        button_html = f"""
+        <a href="{button_url}" class="button" style="color: #ffffff; text-decoration: none;">
+            {button_text}
+        </a>
+        """
+
+    # Gabungin semua
+    body_html = f"""
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        {style}
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">{title}</div>
+            <div class="content">
+                {main_content}
+            </div>
+            {button_html}
+            <div class="footer">
+                <p>{footer_note}</p>
+                <p>&copy; {datetime.now().year} Tim Lab FTI</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return body_html
+
+
+async def send_email_async(
+    recipients: List[str],
+    subject: str,
+    html_content: str
+) -> bool:
+    """
+    Pengirim email ASYNC generik untuk banyak penerima.
+    """
+    if not all([MAIL_USERNAME, MAIL_PASSWORD, MAIL_SERVER]):
+        print("[EMAIL ERROR] Konfigurasi email tidak lengkap. Email gagal dikirim.")
+        return False
+        
+    if not recipients:
+        print("[EMAIL WARN] Tidak ada penerima. Email tidak dikirim.")
+        return True
+
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = subject
+    msg['From'] = MAIL_FROM
+    msg['To'] = ", ".join(recipients) 
+    msg.attach(MIMEText(html_content, 'html'))
+
+    if ASYNC_SMTP_AVAILABLE:
+        try:
+            
+            await aiosmtplib.send(
+                msg,
+                hostname=MAIL_SERVER,
+                port=MAIL_PORT,
+                
+                use_tls=MAIL_USE_SSL, 
+                
+                start_tls=MAIL_USE_TLS, 
+                
+                username=MAIL_USERNAME,
+                password=MAIL_PASSWORD,
+                
+                recipients=recipients
+            )
+            return True 
+        
+        except Exception as e:
+            if "Connection already using TLS" in str(e):
+                print(f"[ASYNC SMTP ERROR] {str(e)}. Coba cek .env. Kemungkinan MAIL_USE_SSL dan MAIL_USE_TLS sama-sama True.")
+            else:
+                print(f"[ASYNC SMTP ERROR] {str(e)}")
+            return False 
+    else:
+        print("[EMAIL FALLBACK] aiosmtplib tidak ketemu. Pake sync sender...")
+        try:
+            if MAIL_USE_SSL:
+                server = smtplib.SMTP_SSL(MAIL_SERVER, MAIL_PORT)
+            else:
+                server = smtplib.SMTP(MAIL_SERVER, MAIL_PORT)
+                if MAIL_USE_TLS:
+                    server.starttls()
+            
+            server.login(MAIL_USERNAME, MAIL_PASSWORD)
+            
+            server.send_message(msg, from_addr=MAIL_FROM, to_addrs=recipients)
+            server.quit()
+            return True
+        except Exception as e:
+            print(f"[SYNC SMTP ERROR] {str(e)}")
+            return False
+        
+        
+async def send_booking_status_email(
+    recipient_email: str,
+    user_name: str,
+    booking_code: str,
+    lab_name: str,
+    activity: str,
+    new_status_str: str, # "Disetujui" atau "Ditolak"
+    reviewer_name: str,
+    reviewed_at: datetime
+) -> bool:
+    """
+    Kirim email notifikasi status booking (Disetujui/Ditolak) ke user.
+    """
+    
+    subject = f"[Update Booking] Booking Anda {booking_code} telah {new_status_str}"
+    
+    # Bikin konten emailnya
+    details_html = f"""
+    <p>Halo, {user_name},</p>
+    <p>Ada update untuk booking Anda ({booking_code}) di <strong>{lab_name}</strong>.</p>
+    
+    <div style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin: 25px 0;">
+        <h3 style="margin-top: 0; color: {'#16a34a' if new_status_str == 'Disetujui' else '#dc2626'};">
+            Status: {new_status_str.upper()}
+        </h3>
+        <ul style="padding-left: 20px; line-height: 1.8;">
+            <li><strong>Aktivitas:</strong> {activity}</li>
+            <li><strong>Lab:</strong> {lab_name}</li>
+            <li><strong>Kode Booking:</strong> {booking_code}</li>
+            <li><strong>Direview oleh:</strong> {reviewer_name}</li>
+            <li><strong>Waktu Review:</strong> {reviewed_at.strftime('%Y-%m-%d %H:%M:%S')}</li>
+        </ul>
+    </div>
+    
+    <p>Anda bisa melihat detail booking Anda kapan saja melalui tombol di bawah ini.</p>
+    """
+
+    base_url = BASE_URL_FRONTEND 
+    review_url = f"{base_url}/booking" 
+
+    html_content = create_styled_html_body(
+            title=f"Booking {new_status_str}",
+            main_content=details_html,
+            button_text="Lihat Booking Saya",
+            button_url=review_url,
+            footer_note="Email ini dikirim otomatis sebagai notifikasi update status booking Anda."
+        )
+
+    try:
+        email_sukses = await send_email_async(
+                recipients=[recipient_email],
+                subject=subject,
+                html_content=html_content
+            )
+        
+        if email_sukses:
+            print(f"✅ [Notify User] Sukses kirim notifikasi status '{new_status_str}' untuk booking {booking_code} ke {recipient_email}")
+            return True
+        else:
+            print(f"❌ [Notify User] Gagal kirim email (setelah styling) untuk booking {booking_code}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ [Notify User ERROR] Gagal proses notifikasi untuk booking {booking_code}: {str(e)}")
+        return False
+    
+    
+
+async def send_pending_reminder_email(
+    recipient_email: str,
+    user_name: str,
+    pending_count: int,
+    bookings_html_list: str # Ini adalah string HTML <ul>...</ul>
+) -> bool:
+    """
+    Kirim email reminder ke Admin/PIC 
+    yang isinya daftar booking yang masih pending.
+    """
+    
+    subject = f"[Reminder] Anda memiliki {pending_count} Booking Lab yang Menunggu Persetujuan"
+    
+    # Bikin konten emailnya
+    main_content_html = f"""
+    <p>Halo, {user_name},</p>
+    <p>Ini adalah pengingat otomatis bahwa ada <strong>{pending_count} booking</strong> 
+    yang masih berstatus 'Pending' di lab/departemen yang Anda kelola dan 
+    memerlukan review (Approve/Reject) dari Anda:</p>
+    
+    <div style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin: 25px 0;">
+        {bookings_html_list}
+    </div>
+    
+    <p>Silakan login ke sistem untuk segera menindaklanjuti booking tersebut.</p>
+    """
+
+    base_url = BASE_URL_FRONTEND 
+    review_url = f"{base_url}/management/monitoring/booking" # Arahin ke halaman list booking
+
+    html_content = create_styled_html_body(
+            title="Reminder Booking Pending",
+            main_content=main_content_html,
+            button_text="Review Booking Sekarang",
+            button_url=review_url,
+            footer_note="Email ini dikirim otomatis karena Anda terdaftar sebagai PIC/Admin."
+        )
+
+    try:
+        email_sukses = await send_email_async(
+                recipients=[recipient_email],
+                subject=subject,
+                html_content=html_content
+            )
+        
+        if email_sukses:
+            print(f"✅ [Reminder] Sukses kirim notifikasi pending ({pending_count} item) ke {recipient_email}")
+            return True
+        else:
+            print(f"❌ [Reminder] Gagal kirim email (setelah styling) ke {recipient_email}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ [Reminder ERROR] Gagal proses notifikasi ke {recipient_email}: {str(e)}")
+        return False

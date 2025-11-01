@@ -16,8 +16,8 @@ class Booking(Base):
     
     nstatus = Column(Integer, default=2, comment="0:Rejected, 1:Approved, 2:Pending, 3:Canceled, 4:WaitingForDoc, 5:Done")
     
-    dapproved_at = Column(DateTime, nullable=True)
-    vapproved_by = Column(String(100), nullable=True)
+    dreviewed_at = Column(DateTime, nullable=True)
+    vreviewed_by = Column(String(100), nullable=True)
 
     dcreated_at = Column(DateTime, server_default=func.now())
     vcreated_by = Column(String(100), nullable=True)

@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
 from services.api import rolesAPI, permissionsAPI, rolesPermissionsAPI, usersAPI, labAPI, departmentAPI, userAccessAPI, departmentLabAPI, filesAPI, facilityAPI, labFacilityAPI, bookingAPI
@@ -11,8 +12,10 @@ from datetime import datetime
 
 Base.metadata.create_all(bind=engine)
 
+BASE_URL_FRONTEND = os.getenv("BASE_URL_FE", "http://localhost:3000")
+
 origins = [
-    "http://localhost:3000",
+    BASE_URL_FRONTEND,
 ]
 
 def check_overdue_bookings_job():
