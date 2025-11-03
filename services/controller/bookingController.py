@@ -21,7 +21,18 @@ from ..schemas.bookingFilesSchema import BookingFileCreate
 
 from . import fileController
 
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+
 # --- HELPERS ---
+
+def to_wib(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return JAKARTA_TZ.localize(dt)
+    return dt.astimezone(JAKARTA_TZ)
 
 def generate_unique_booking_code(db: Session) -> str:
     while True:
@@ -167,7 +178,7 @@ def get_all_bookings(
         joinedload(Booking.lab_facility).joinedload(LabFacility.lab),
         joinedload(Booking.lab_facility).joinedload(LabFacility.facility),
         selectinload(Booking.booking_files).joinedload(BookingFile.file)
-    ).filter(Booking.nstatus != 0)
+    )
 
     managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
     
@@ -264,7 +275,7 @@ async def create_booking(db: Session, current_user: usersModel.User, request: Re
         new_booking_code = generate_unique_booking_code(db)
         db_booking = Booking(
             vcode=new_booking_code, nid_lab_facility=nid_lab_facility,
-            nid_user=current_user.nid, dstart=dstart, dend=dend,
+            nid_user=current_user.nid, dstart=to_wib(dstart), dend=to_wib(dend),
             vactivity=vactivity, nstatus=2, vcreated_by=current_user.vcode
         )
         db.add(db_booking)

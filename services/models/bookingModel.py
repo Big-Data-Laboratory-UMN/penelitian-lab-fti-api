@@ -1,6 +1,12 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func, Text
 from sqlalchemy.orm import relationship
 from ..database import Base
+from datetime import datetime
+import pytz
+
+
+def now_wib():
+    return datetime.now(pytz.timezone("Asia/Jakarta"))
 
 class Booking(Base):
     __tablename__ = "tblt_booking"
@@ -19,9 +25,9 @@ class Booking(Base):
     dreviewed_at = Column(DateTime, nullable=True)
     vreviewed_by = Column(String(100), nullable=True)
 
-    dcreated_at = Column(DateTime, server_default=func.now())
+    dcreated_at = Column(DateTime, default=now_wib)
     vcreated_by = Column(String(100), nullable=True)
-    dmodified_at = Column(DateTime, onupdate=func.now())
+    dmodified_at = Column(DateTime, onupdate=now_wib)
     vmodified_by = Column(String(100), nullable=True)
     
     # Relationships

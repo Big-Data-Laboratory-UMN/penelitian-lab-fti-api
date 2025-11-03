@@ -14,6 +14,17 @@ from ..models import rolesModel, userAccessModel
 
 from ..schemas import bookingSchema, usersSchema
 
+
+from datetime import datetime
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+
+def to_wib(dt: datetime) -> datetime:
+    if dt is None:
+        return dt
+    return JAKARTA_TZ.localize(dt) if dt.tzinfo is None else dt.astimezone(JAKARTA_TZ)
+
 router = APIRouter(
     prefix="/booking",
     tags=["Booking Management"],

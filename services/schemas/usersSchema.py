@@ -43,7 +43,7 @@ class UserResponse(BaseModel):
 
 class UserDropdown(BaseModel):
     nid: int
-    vname: str
+    vemail: str
 
     class Config:
         from_attributes = True
