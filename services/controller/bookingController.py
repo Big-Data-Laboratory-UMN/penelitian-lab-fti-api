@@ -265,7 +265,7 @@ async def create_booking(db: Session, current_user: usersModel.User, request: Re
     try:
         db_proposal_file = await fileController.save_file(
             db=db, file=proposal_file, category="bookingDocs",
-            current_user=current_user, request=request, is_public=False
+            current_user=current_user, request=request, is_public=False, prefix="PROP"
         )
         if not db_proposal_file:
              raise HTTPException(status_code=500, detail="Gagal menyimpan file proposal.")
@@ -447,7 +447,7 @@ async def upload_booking_documentation(
             for img_file in doc_images:
                 db_img_file = await fileController.save_file(
                     db=db, file=img_file, category="bookingDocs",
-                    current_user=current_user, request=request, is_public=False
+                    current_user=current_user, request=request, is_public=False, prefix="DOC"
                 )
                 new_image_ids.append(db_img_file.nid)
                 list_of_new_file_ids_to_rollback.append(db_img_file.nid)
@@ -458,7 +458,7 @@ async def upload_booking_documentation(
         if has_doc_article:
             db_article_file = await fileController.save_file(
                 db=db, file=doc_article, category="bookingDocs",
-                current_user=current_user, request=request, is_public=False
+                current_user=current_user, request=request, is_public=False, prefix="OUT"
             )
             list_of_new_file_ids_to_rollback.append(db_article_file.nid)
             if upsert_booking_file(db, booking_id, "documentation_article", db_article_file.nid, current_user):

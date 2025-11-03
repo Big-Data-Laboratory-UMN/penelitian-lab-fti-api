@@ -59,7 +59,7 @@ def get_file_url(request: Request, file_path: str, is_public: bool) -> str:
         # (Asumsi kita belum buat, jadi kita return path simbolis)
         return f"private/file/{Path(file_path).name}"
 
-async def save_physical_file(file: UploadFile, category: str, request: Request, is_public: bool) -> dict:
+async def save_physical_file(file: UploadFile, category: str, request: Request, is_public: bool, prefix: str | None = None) -> dict:
     """
     Simpan file fisik ke disk dan kembalikan dictionary berisi metadata.
     """
@@ -67,7 +67,13 @@ async def save_physical_file(file: UploadFile, category: str, request: Request, 
         # Buat nama file unik
         original_name = Path(file.filename or "unknown.file")
         extension = original_name.suffix.lower()
-        file_code = f"{uuid.uuid4()}{extension}" # Nama unik
+        unique_id = uuid.uuid4()
+        if prefix:
+            # Sanitasi prefix: uppercase, buang spasi, ganti spasi jadi _
+            s_prefix = prefix.upper().strip().replace(" ", "_")
+            file_code = f"{s_prefix}-{unique_id}{extension}"
+        else:
+            file_code = f"{unique_id}{extension}"
         
         # Tentukan direktori penyimpanan
         # /app/storage/public/facilities atau /app/storage/private/facilities
@@ -128,7 +134,8 @@ async def save_file(
     category: str,
     current_user: usersSchema.User,
     request: Request,
-    is_public: bool = False
+    is_public: bool = False,
+    prefix: str | None = None
 ):
     """
     Fungsi helper utama untuk controller lain.
@@ -140,7 +147,8 @@ async def save_file(
         file=file,
         category=category,
         request=request,
-        is_public=is_public
+        is_public=is_public,
+        prefix=prefix
     )
     
     # 2. Siapkan data metadata
