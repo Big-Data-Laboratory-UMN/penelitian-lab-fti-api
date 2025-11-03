@@ -9,7 +9,8 @@ from ..schemas import departmentLabSchema as schema, usersSchema
 import pytz
 
 JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
-now_wib = datetime.now(JAKARTA_TZ)
+def now_wib():
+    return datetime.now(JAKARTA_TZ)
 
 
 # --- HELPERS ---
@@ -30,7 +31,7 @@ def get_department_lab(db: Session, department_lab_id: int):
 def create_department_lab(db: Session, department_lab: schema.DepartmentLabCreate, current_user: usersSchema.User):
     db_department_lab = models.DepartmentLab(**department_lab.model_dump())
     db_department_lab.vcreated_by = current_user.vcode
-    db_department_lab.dsort_at = now_wib
+    db_department_lab.dsort_at = now_wib()
 
     try:
         db.add(db_department_lab)
@@ -59,7 +60,7 @@ def update_department_lab(db: Session, department_lab_vcode: str, department_lab
     db_department_lab.nid_department = department_lab.nid_department
     db_department_lab.nstatus = department_lab.nstatus
     db_department_lab.vmodified_by = current_user.vcode
-    db_department_lab.dsort_at = now_wib
+    db_department_lab.dsort_at = now_wib()
 
     try:
         db.add(db_department_lab)
@@ -136,7 +137,7 @@ def delete_department_lab(db: Session, department_lab_vcode: str, current_user: 
     if db_department_lab:
         db_department_lab.nstatus = 0
         db_department_lab.vmodified_by = current_user.vcode
-        db_department_lab.dsort_at = now_wib
+        db_department_lab.dsort_at = now_wib()
         db.commit()
         db.refresh(db_department_lab)
     return db_department_lab

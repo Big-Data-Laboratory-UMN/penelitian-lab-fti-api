@@ -122,7 +122,7 @@ async def login_for_access_token(
 
         user_response = schema.User.model_validate(user)
         print(f"[API /token] Login successful for {user.vemail}. Returning user data.")
-        return {"user": user_response}
+        return {"user": user_response, "refresh_token": refresh_token, "access_token": access_token, "token_type": "bearer", "access_expires_in": ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS, "refresh_expires_in": refresh_token_duration_seconds}
 
     except ValueError as e:
          print(f"[API /token] Login failed for {username}: {str(e)}")
@@ -184,7 +184,7 @@ async def refresh_token_endpoint(
         print(f"[API /refresh_token] New access token cookie set.")
 
         # Kembalikan response body (opsional)
-        return {"access_token": new_access_token, "token_type": "bearer"}
+        return {"access_token": new_access_token, "token_type": "bearer", "access_expires_in": ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS}
 
     except HTTPException as e:
          print(f"[API /refresh_token] Refresh failed: {e.detail} (Status: {e.status_code})")

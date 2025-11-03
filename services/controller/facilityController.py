@@ -15,7 +15,8 @@ from . import fileController
 import pytz
 
 JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
-now_wib = datetime.now(JAKARTA_TZ)
+def now_wib():
+    return datetime.now(JAKARTA_TZ)
 
 
 # --- HELPERS ---
@@ -73,7 +74,7 @@ async def create_facility_with_file(
             nid_file=new_file_id, 
             nstatus=1,
             vcreated_by=current_user.vcode,
-            dcreated_at=now_wib
+            dcreated_at=now_wib()
         )
         
         db.add(db_facility)
@@ -127,7 +128,7 @@ async def update_facility_with_file(
         
         update_data = facility_data.model_dump(exclude_unset=True)
         update_data['vmodified_by'] = current_user.vcode
-        update_data['dmodified_at'] = now_wib
+        update_data['dmodified_at'] = now_wib()
         update_data['nid_file'] = new_file_id 
         
         if 'vcode' in update_data:
@@ -222,7 +223,7 @@ def delete_facility(db: Session, facility_vcode: str, modified_by: str):
         ).values(
             nstatus=0, 
             vmodified_by=modified_by,
-            dmodified_at=now_wib
+            dmodified_at=now_wib()
         )
         db.execute(stmt)
         db.commit()

@@ -9,8 +9,8 @@ from ..schemas import labFacilitySchema as schema
 import pytz
 
 JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
-now_wib = datetime.now(JAKARTA_TZ)
-
+def now_wib():
+    return datetime.now(JAKARTA_TZ)
 
 # --- HELPERS ---
 
@@ -30,7 +30,7 @@ def get_facility_lab(db: Session, facility_lab_id: int):
 
 def create_facility_lab(db: Session, facility_lab: schema.FacilityLabCreate):
     db_facility_lab = models.LabFacility(**facility_lab.model_dump())
-    db_facility_lab.dsort_at = now_wib
+    db_facility_lab.dsort_at = now_wib()
 
     try:
         db.add(db_facility_lab)
@@ -59,7 +59,7 @@ def update_facility_lab(db: Session, facility_lab_vcode: str, facility_lab: sche
     db_facility_lab.nid_facility = facility_lab.nid_facility
     db_facility_lab.nstatus = facility_lab.nstatus
     db_facility_lab.vmodified_by = facility_lab.vmodified_by
-    db_facility_lab.dsort_at = now_wib
+    db_facility_lab.dsort_at = now_wib()
 
     try:
         db.add(db_facility_lab)
@@ -136,7 +136,7 @@ def delete_facility_lab(db: Session, facility_lab_vcode: str, current_user: str)
     if db_facility_lab:
         db_facility_lab.nstatus = 0
         db_facility_lab.vmodified_by = current_user
-        db_facility_lab.dsort_at = now_wib
+        db_facility_lab.dsort_at = now_wib()
         db.commit()
         db.refresh(db_facility_lab)
     return db_facility_lab

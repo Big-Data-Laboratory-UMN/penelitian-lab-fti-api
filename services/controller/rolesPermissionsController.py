@@ -9,8 +9,8 @@ from ..schemas import rolesPermissionsSchema as schema
 import pytz
 
 JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
-now_wib = datetime.now(JAKARTA_TZ)
-
+def now_wib():
+    return datetime.now(JAKARTA_TZ)
 
 # --- HELPERS ---
 
@@ -38,7 +38,7 @@ def create_role_permission(db: Session, role_permission: schema.RolePermissionCr
     Membuat relasi role-permission baru dengan validasi unik.
     """
     db_role_permission = models.RolePermission(**role_permission.model_dump())
-    db_role_permission.dsort_at = now_wib
+    db_role_permission.dsort_at = now_wib()
 
     try:
         db.add(db_role_permission)
@@ -70,7 +70,7 @@ def update_role_permission(db: Session, role_permission_vcode: str, role_permiss
     db_role_permission.nid_permission = role_permission.nid_permission
     db_role_permission.nstatus = role_permission.nstatus
     db_role_permission.vmodified_by = role_permission.vmodified_by
-    db_role_permission.dsort_at = now_wib
+    db_role_permission.dsort_at = now_wib()
 
     try:
         db.add(db_role_permission)
@@ -153,7 +153,7 @@ def delete_role_permission(db: Session, role_permission_vcode: str):
     if db_role_permission:
         db_role_permission.nstatus = 0
         db_role_permission.vmodified_by = "system"
-        db_role_permission.dsort_at = now_wib
+        db_role_permission.dsort_at = now_wib()
         db.commit()
         db.refresh(db_role_permission)
     return db_role_permission

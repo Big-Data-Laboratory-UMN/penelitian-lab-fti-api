@@ -8,8 +8,8 @@ from ..schemas import rolesSchema as schema, usersSchema
 import pytz
 
 JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
-now_wib = datetime.now(JAKARTA_TZ)
-
+def now_wib():
+    return datetime.now(JAKARTA_TZ)
 
 # --- HELPERS ---
 
@@ -54,7 +54,7 @@ def create_role(db: Session, role: schema.RoleCreate, current_user: usersSchema.
     """
     db_role = models.Role(**role.model_dump())
     db_role.vcreated_by = current_user.vcode
-    db_role.dsort_at = now_wib
+    db_role.dsort_at = now_wib()
 
     try:
         db.add(db_role)
@@ -87,7 +87,7 @@ def update_role(db: Session, role_vcode: str, role: schema.RoleUpdate, current_u
     db_role.vdesc = role.vdesc
     db_role.nstatus = role.nstatus
     db_role.vmodified_by = current_user.vcode
-    db_role.dsort_at = now_wib
+    db_role.dsort_at = now_wib()
 
     try:
         db.commit()
@@ -155,7 +155,7 @@ def delete_role(db: Session, role_vcode: str, current_user: usersSchema.User):
     if db_role:
         db_role.nstatus = 0
         db_role.vmodified_by = current_user.vcode
-        db_role.dsort_at = now_wib
+        db_role.dsort_at = now_wib()
         db.commit()
         db.refresh(db_role)
     return db_role

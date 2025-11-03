@@ -16,8 +16,8 @@ from sqlalchemy import or_, desc, update, delete
 import pytz
 
 JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
-now_wib = datetime.now(JAKARTA_TZ)
-
+def now_wib():
+    return datetime.now(JAKARTA_TZ)
 
 # --- HELPERS ---
 
@@ -184,7 +184,7 @@ def create_file(db: Session, file_data: schema.FileCreate):
     """Buat record metadata file di database."""
     try:
         db_file = models.Files(**file_data.model_dump())
-        db_file.dcreated_at = now_wib
+        db_file.dcreated_at = now_wib()
         
         db.add(db_file)
         db.commit()
@@ -254,7 +254,7 @@ def update_file(db: Session, file_vcode: str, file_data: schema.FileUpdate):
 
     try:
         update_data = file_data.model_dump(exclude_unset=True)
-        update_data['dmodified_at'] = now_wib
+        update_data['dmodified_at'] = now_wib()
         
         stmt = update(models.Files).where(
             models.Files.vcode == file_vcode,
@@ -287,7 +287,7 @@ def delete_file(db: Session, file_vcode: str, modified_by: str):
         ).values(
             nstatus=0,
             vmodified_by=modified_by,
-            dmodified_at=now_wib
+            dmodified_at=now_wib()
         )
         db.execute(stmt)
         db.commit()

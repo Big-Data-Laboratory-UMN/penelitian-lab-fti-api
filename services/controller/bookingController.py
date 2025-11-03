@@ -24,7 +24,8 @@ from . import fileController
 import pytz
 
 JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
-now_wib = datetime.now(JAKARTA_TZ)
+def now_wib():
+    return datetime.now(JAKARTA_TZ)
 
 # --- HELPERS ---
 
@@ -105,7 +106,7 @@ def replace_booking_files_by_type(db: Session, booking_id: int, file_type: str, 
                 BookingFile(
                     vcode=str(uuid.uuid4()), nid_booking=booking_id,
                     nid_file=file_id, vtype=file_type,
-                    vcreated_by=current_user.vcode, dsort_at=now_wib
+                    vcreated_by=current_user.vcode, dsort_at=now_wib()
                 )
             )
         db.add_all(new_files)
@@ -130,13 +131,13 @@ def upsert_booking_file(db: Session, booking_id: int, file_type: str, new_file_i
         db_file = BookingFile(
             vcode=str(uuid.uuid4()), nid_booking=booking_id,
             nid_file=new_file_id, vtype=file_type,
-            vcreated_by=current_user.vcode, dsort_at=now_wib
+            vcreated_by=current_user.vcode, dsort_at=now_wib()
         )
         db.add(db_file)
         return True
 
 def trigger_update_overdue_bookings(db: Session):
-    now = now_wib
+    now = now_wib()
     overdue_bookings = db.query(Booking).filter(
         Booking.nstatus == 1,
         Booking.dend < now
@@ -278,7 +279,7 @@ async def create_booking(db: Session, current_user: usersModel.User, request: Re
             vcode=new_booking_code, nid_lab_facility=nid_lab_facility,
             nid_user=current_user.nid, dstart=to_wib(dstart), dend=to_wib(dend),
             vactivity=vactivity, nstatus=2, vcreated_by=current_user.vcode,
-            dsort_at=now_wib
+            dsort_at=now_wib()
         )
         db.add(db_booking)
         db.flush()
@@ -350,7 +351,7 @@ def update_booking_status(
             raise HTTPException(status_code=403, detail="Otorisasi gagal: Anda hanya bisa approve booking di Lab yang Anda kelola.")
 
         db_booking.nstatus = new_status
-        db_booking.dreviewed_at = now_wib
+        db_booking.dreviewed_at = now_wib()
         db_booking.vreviewed_by = current_user.vcode
         modified = True
     
@@ -363,7 +364,7 @@ def update_booking_status(
             raise HTTPException(status_code=403, detail="Otorisasi gagal: Anda hanya bisa reject booking di Lab yang Anda kelola.")
         
         db_booking.nstatus = new_status
-        db_booking.dreviewed_at = now_wib # Catat waktu reject
+        db_booking.dreviewed_at = now_wib() # Catat waktu reject
         db_booking.vreviewed_by = current_user.vcode # Catat siapa yg reject
         modified = True
 
@@ -396,7 +397,7 @@ def update_booking_status(
     if modified:
         try:
             db_booking.vmodified_by = current_user.vcode
-            db_booking.dsort_at = now_wib
+            db_booking.dsort_at = now_wib()
             db.commit()
             db.refresh(db_booking)
         except Exception as e:
@@ -496,7 +497,7 @@ async def upload_booking_documentation(
     if modified:
         try:
             db_booking.vmodified_by = current_user.vcode
-            db_booking.dsort_at = now_wib
+            db_booking.dsort_at = now_wib()
             db.commit() # Commit file DAN status barunya (kalo ada)
             db.refresh(db_booking)
         except Exception as e:
@@ -532,7 +533,7 @@ def delete_booking(
         raise HTTPException(status_code=403, detail="Otorisasi gagal: Anda hanya bisa delete booking di Lab yang Anda kelola.")
 
     db_booking.nstatus = 0
-    db_booking.dsort_at = now_wib
+    db_booking.dsort_at = now_wib()
     db_booking.vmodified_by = current_user.vcode
     db.commit()
 
@@ -682,7 +683,7 @@ async def notify_user_of_status_update(booking_id: int, new_status: int, reviewe
         
         if db_booking.dreviewed_at is None:
             print(f"[Notify User] WARNING: dreviewed_at masih None untuk booking {booking_id}. Pake waktu sekarang.")
-            review_time = now_wib
+            review_time = now_wib()
         else:
             review_time = db_booking.dreviewed_at
 
