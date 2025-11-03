@@ -2,7 +2,7 @@ import traceback
 from fastapi import Request, UploadFile
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc, update, delete
-import datetime
+from datetime import datetime
 
 from ..schemas import facilitySchema as schema
 from ..schemas import usersSchema
@@ -11,6 +11,21 @@ from ..models import facilityModel as models
 from ..models import filesModel 
 
 from . import fileController 
+
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+now_wib = datetime.now(JAKARTA_TZ)
+
+
+# --- HELPERS ---
+
+def to_wib(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return JAKARTA_TZ.localize(dt)
+    return dt.astimezone(JAKARTA_TZ)
 
 def get_facility_by_code_and_name(db: Session, vcode: str, vname: str):
     """Cek duplikat berdasarkan vcode ATAU vname (hanya data aktif)."""
@@ -58,7 +73,7 @@ async def create_facility_with_file(
             nid_file=new_file_id, 
             nstatus=1,
             vcreated_by=current_user.vcode,
-            dcreated_at=datetime.datetime.now(datetime.timezone.utc)
+            dcreated_at=now_wib
         )
         
         db.add(db_facility)
@@ -112,7 +127,7 @@ async def update_facility_with_file(
         
         update_data = facility_data.model_dump(exclude_unset=True)
         update_data['vmodified_by'] = current_user.vcode
-        update_data['dmodified_at'] = datetime.datetime.now(datetime.timezone.utc)
+        update_data['dmodified_at'] = now_wib
         update_data['nid_file'] = new_file_id 
         
         if 'vcode' in update_data:
@@ -207,7 +222,7 @@ def delete_facility(db: Session, facility_vcode: str, modified_by: str):
         ).values(
             nstatus=0, 
             vmodified_by=modified_by,
-            dmodified_at=datetime.datetime.now(datetime.timezone.utc)
+            dmodified_at=now_wib
         )
         db.execute(stmt)
         db.commit()

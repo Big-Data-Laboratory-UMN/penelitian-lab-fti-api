@@ -10,6 +10,11 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 from ..database import Base
+import pytz
+
+
+def now_wib():
+    return datetime.now(pytz.timezone("Asia/Jakarta"))
 
 # Tipe Token: 1=Activation, 2=Login Session, 3=Password Reset, 4=Email Change
 # Status Token: 1=Aktif, 0=Tidak Aktif
@@ -33,8 +38,8 @@ class Token(Base):
     
     nstatus = Column(Integer, nullable=False, default=1, comment="Status token: 1=Aktif, 0=Tidak Aktif/Sudah digunakan")
     
-    dcreated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    dmodified_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    dcreated_at = Column(DateTime(timezone=True), default=now_wib, nullable=False)
+    dmodified_at = Column(DateTime(timezone=True), onupdate=now_wib, nullable=True)
 
     __table_args__ = (
         CheckConstraint(ntoken_type.in_([1, 2, 3, 4]), name='chk_token_type_values'),

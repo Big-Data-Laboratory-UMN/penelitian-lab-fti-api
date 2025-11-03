@@ -9,6 +9,16 @@ from ..controller import usersController
 from ..models import usersModel as models
 from ..database import SessionLocal # Import SessionLocal untuk db_factory
 
+from datetime import datetime
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+
+def to_wib(dt: datetime) -> datetime:
+    if dt is None:
+        return dt
+    return JAKARTA_TZ.localize(dt) if dt.tzinfo is None else dt.astimezone(JAKARTA_TZ)
+
 router = APIRouter(
     prefix="/users",
     tags=["Users"]

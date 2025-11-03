@@ -4,7 +4,6 @@ from ..database import Base
 from datetime import datetime
 import pytz
 
-
 def now_wib():
     return datetime.now(pytz.timezone("Asia/Jakarta"))
 
@@ -29,6 +28,8 @@ class Booking(Base):
     vcreated_by = Column(String(100), nullable=True)
     dmodified_at = Column(DateTime, onupdate=now_wib)
     vmodified_by = Column(String(100), nullable=True)
+    
+    dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib) 
     
     # Relationships
     user = relationship("User", back_populates="bookings")

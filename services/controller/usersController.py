@@ -23,6 +23,17 @@ from utils.email_service import send_activation_email, send_email_change_verific
 from ..database import SessionLocal
 
 jakarta_tz = pytz.timezone("Asia/Jakarta")
+now_wib = datetime.now(jakarta_tz)
+
+
+# --- HELPERS ---
+
+def to_wib(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return jakarta_tz.localize(dt)
+    return dt.astimezone(jakarta_tz)
 
 PASSWORD_PEPPER = os.getenv("PASSWORD_PEPPER")
 if not PASSWORD_PEPPER:
@@ -49,9 +60,9 @@ def get_db():
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now_wib + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now_wib + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -59,10 +70,10 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
 def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now_wib + expires_delta
     else:
         # Ubah ke days sesuai variabel baru
-        expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        expire = now_wib + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire})
     # Optionally add a claim to distinguish refresh tokens if needed, e.g., to_encode["type"] = "refresh"
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -180,7 +191,7 @@ async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin,
         db.refresh(db_user)
 
         activation_token_str = secrets.token_urlsafe(32)
-        expires_at = datetime.utcnow() + timedelta(hours=24) # Aktivasi 24 jam
+        expires_at = now_wib + timedelta(hours=24) # Aktivasi 24 jam
 
         db_token = tokenModel.Token(
             nid_user=db_user.nid,
@@ -255,7 +266,7 @@ async def update_user(db: Session, user_vcode: str, user: schema.UserUpdate, app
              raise ValueError("Gagal memulai perubahan email. Email baru sudah digunakan oleh pengguna lain.")
 
         verification_token_str = secrets.token_urlsafe(32)
-        expires_at = datetime.utcnow() + timedelta(hours=24) # Verifikasi 24 jam
+        expires_at = now_wib + timedelta(hours=24) # Verifikasi 24 jam
 
         # Buat token verifikasi email baru (Tipe 4)
         db_token = tokenModel.Token(
@@ -311,7 +322,7 @@ async def update_user(db: Session, user_vcode: str, user: schema.UserUpdate, app
 
 
     try:
-        db_user.dsort_at = datetime.utcnow() # Update timestamp sortir
+        db_user.dsort_at = now_wib # Update timestamp sortir
         db.commit()
         db.refresh(db_user)
         print(f"✅ User {db_user.vcode} updated successfully (Email change might be pending verification).")
@@ -342,7 +353,7 @@ async def resend_activation_email(db: Session, user_vcode: str, app=None, db_fac
 
     # Buat token aktivasi baru
     activation_token_str = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(hours=24) # 24 jam lagi
+    expires_at = now_wib + timedelta(hours=24) # 24 jam lagi
 
     # Nonaktifkan token lama (jika ada yg masih aktif) - Opsional tapi bagus
     db.query(tokenModel.Token).filter(
@@ -365,7 +376,7 @@ async def resend_activation_email(db: Session, user_vcode: str, app=None, db_fac
     if user.nstatus == 3:
         user.nstatus = 2
         user.vmodified_by = "system-resend" # Tandai pengubah
-        user.dsort_at = datetime.utcnow()
+        user.dsort_at = now_wib
 
     try:
         db.commit() # Commit user status change & token baru & penonaktifan token lama
@@ -417,13 +428,13 @@ def set_initial_password(db: Session, password_data: schema.SetInitialPassword):
         raise ValueError("Tautan aktivasi ini sudah pernah digunakan.")
 
     # Cek expired
-    if db_token.dexpires_at < datetime.utcnow():
+    if db_token.dexpires_at < now_wib:
         # Token expired, update status user jadi Expired (3) jika masih Pending (2)
         user_to_update = db.query(models.User).filter(models.User.nid == db_token.nid_user).first()
         if user_to_update and user_to_update.nstatus == 2:
             user_to_update.nstatus = 3
             user_to_update.vmodified_by = "system-token-expired"
-            user_to_update.dsort_at = datetime.utcnow()
+            user_to_update.dsort_at = now_wib
             # Nonaktifkan token juga
             db_token.nstatus = 0
             try:
@@ -462,7 +473,7 @@ def set_initial_password(db: Session, password_data: schema.SetInitialPassword):
     user.vpassword = get_password_hash(password_data.password)
     user.nstatus = 1 # Jadi Aktif
     user.vmodified_by = "system-activation"
-    user.dsort_at = datetime.utcnow()
+    user.dsort_at = now_wib
     # Nonaktifkan token setelah dipakai
     db_token.nstatus = 0
 
@@ -494,7 +505,7 @@ def verify_and_update_email(db: Session, token: str):
         raise ValueError("Tautan verifikasi ini sudah pernah digunakan.")
 
     # Cek expired
-    if db_token.dexpires_at < datetime.utcnow():
+    if db_token.dexpires_at < now_wib:
         db_token.nstatus = 0 # Nonaktifkan token expired
         db.commit()
         raise ValueError("Tautan verifikasi sudah kedaluwarsa.")
@@ -526,7 +537,7 @@ def verify_and_update_email(db: Session, token: str):
     # Update email user
     user_to_update.vemail = new_email
     user_to_update.vmodified_by = "system-email-verify"
-    user_to_update.dsort_at = datetime.utcnow()
+    user_to_update.dsort_at = now_wib
     # Nonaktifkan token & hapus email dari token
     db_token.nstatus = 0
     db_token.vnew_email = None # Hapus email dari token setelah dipakai
@@ -589,7 +600,7 @@ def schedule_token_expiry(sched, db_factory, user_id: int, token_id: int, task_t
                 if user and user.nstatus == 2:
                     user.nstatus = 3 # Ubah jadi Expired
                     user.vmodified_by = "system-scheduler-expire"
-                    user.dsort_at = datetime.utcnow()
+                    user.dsort_at = now_wib
                     token.nstatus = 0 # Nonaktifkan token
                     db.commit()
                     sys.stdout.write(f"[SCHEDULER EXPIRE] User activation for {user.vemail} (ID: {user_id}) has expired via job {job_id}.\n")
@@ -755,7 +766,7 @@ def delete_user(db: Session, user_vcode: str, current_user: str):
             return db_user # Kembalikan aja user yg udah inactive
         db_user.nstatus = 0 # Set jadi Inactive
         db_user.vmodified_by = current_user
-        db_user.dsort_at = datetime.utcnow()
+        db_user.dsort_at = now_wib
         try:
              db.commit()
              db.refresh(db_user)
@@ -799,13 +810,13 @@ def verify_activation_token(db: Session, token: str):
         return {"valid": False, "reason": "Token sudah digunakan atau tidak aktif."}
 
     # Cek expired
-    if db_token.dexpires_at < datetime.utcnow():
+    if db_token.dexpires_at < now_wib:
         # Update status user jadi Expired (3) kalo masih Pending (2)
         user_to_update = db.query(models.User).filter(models.User.nid == db_token.nid_user).first()
         if user_to_update and user_to_update.nstatus == 2:
             user_to_update.nstatus = 3
             user_to_update.vmodified_by = "system-token-verify-expired"
-            user_to_update.dsort_at = datetime.utcnow()
+            user_to_update.dsort_at = now_wib
             db_token.nstatus = 0 # Nonaktifkan token
             try:
                 db.commit()

@@ -6,6 +6,16 @@ from ..schemas import labFacilitySchema as schema, usersSchema
 from ..controller import labFacilityController, userAccessController, usersController
 from ..database import SessionLocal
 
+from datetime import datetime
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+
+def to_wib(dt: datetime) -> datetime:
+    if dt is None:
+        return dt
+    return JAKARTA_TZ.localize(dt) if dt.tzinfo is None else dt.astimezone(JAKARTA_TZ)
+
 router = APIRouter(
     prefix="/facility_labs",
     tags=["Facility Labs"]

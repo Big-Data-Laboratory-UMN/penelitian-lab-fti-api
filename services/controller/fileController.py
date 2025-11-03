@@ -5,12 +5,28 @@ import os
 import uuid
 import mimetypes
 import aiofiles # type: ignore
-import datetime
+from datetime import datetime
 import traceback  # <--- FIX: Tambahan untuk debugging
 from pathlib import Path
 from fastapi import UploadFile, Request, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc, update, delete
+
+
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+now_wib = datetime.now(JAKARTA_TZ)
+
+
+# --- HELPERS ---
+
+def to_wib(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return JAKARTA_TZ.localize(dt)
+    return dt.astimezone(JAKARTA_TZ)
 
 # --- Import Model & Skema ---
 from ..models import filesModel as models
@@ -160,7 +176,7 @@ def create_file(db: Session, file_data: schema.FileCreate):
     """Buat record metadata file di database."""
     try:
         db_file = models.Files(**file_data.model_dump())
-        db_file.dcreated_at = datetime.datetime.now(datetime.timezone.utc)
+        db_file.dcreated_at = now_wib
         
         db.add(db_file)
         db.commit()
@@ -230,7 +246,7 @@ def update_file(db: Session, file_vcode: str, file_data: schema.FileUpdate):
 
     try:
         update_data = file_data.model_dump(exclude_unset=True)
-        update_data['dmodified_at'] = datetime.datetime.now(datetime.timezone.utc)
+        update_data['dmodified_at'] = now_wib
         
         stmt = update(models.Files).where(
             models.Files.vcode == file_vcode,
@@ -263,7 +279,7 @@ def delete_file(db: Session, file_vcode: str, modified_by: str):
         ).values(
             nstatus=0,
             vmodified_by=modified_by,
-            dmodified_at=datetime.datetime.now(datetime.timezone.utc)
+            dmodified_at=now_wib
         )
         db.execute(stmt)
         db.commit()

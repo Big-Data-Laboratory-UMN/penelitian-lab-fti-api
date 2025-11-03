@@ -10,6 +10,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+import pytz
+
+def now_wib():
+    return datetime.now(pytz.timezone("Asia/Jakarta"))
 
 # Status User: 0=Inactive, 1=Active, 2=Pending, 3=Expired
 
@@ -26,11 +30,14 @@ class User(Base):
     vpassword = Column(String(255), nullable=True)
 
     nstatus = Column(Integer, nullable=False, default=1, comment="Status User: 0=Inactive, 1=Active, 2=Pending, 3=Expired")
-    vcreated_by = Column(String(255), nullable=False)
-    vmodified_by = Column(String(255), nullable=True)
-    dcreated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    dmodified_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
-    dsort_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    dcreated_at = Column(DateTime, default=now_wib)
+    vcreated_by = Column(String(100), nullable=True)
+    dmodified_at = Column(DateTime, onupdate=now_wib)
+    vmodified_by = Column(String(100), nullable=True)
+    
+    dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib) 
+    
     bookings = relationship("Booking", back_populates="user")
     
     __table_args__ = (

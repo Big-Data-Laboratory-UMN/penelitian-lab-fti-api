@@ -10,6 +10,11 @@ from sqlalchemy import (
 from datetime import datetime
 from sqlalchemy.sql import func
 from ..database import Base
+import pytz
+
+
+def now_wib():
+    return datetime.now(pytz.timezone("Asia/Jakarta"))
 
 class DepartmentLab(Base):
     __tablename__ = "tblr_department_lab"
@@ -23,11 +28,12 @@ class DepartmentLab(Base):
 
     nstatus = Column(Integer, nullable=False, default=1)
 
-    vcreated_by = Column(String(255), nullable=False)
-    vmodified_by = Column(String(255), nullable=True)
-    dcreated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    dmodified_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
-    dsort_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    dcreated_at = Column(DateTime, default=now_wib)
+    vcreated_by = Column(String(100), nullable=True)
+    dmodified_at = Column(DateTime, onupdate=now_wib)
+    vmodified_by = Column(String(100), nullable=True)
+    
+    dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib)
 
     __table_args__ = (
         CheckConstraint('nstatus IN (0, 1)', name='chk_department_lab_nstatus_values'),

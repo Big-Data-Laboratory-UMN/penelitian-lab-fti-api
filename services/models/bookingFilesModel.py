@@ -2,6 +2,11 @@ from sqlalchemy import Column, Integer, DateTime, ForeignKey, func, String
 from sqlalchemy.orm import relationship
 from ..database import Base 
 from datetime import datetime
+import pytz
+
+
+def now_wib():
+    return datetime.now(pytz.timezone("Asia/Jakarta"))
 
 class BookingFile(Base):
     __tablename__ = 'tblr_booking_files' 
@@ -12,17 +17,18 @@ class BookingFile(Base):
     # Ini nyambung ke file yang di-upload (di tabel files)
     nid_file = Column(Integer, ForeignKey('tblm_files.nid'), nullable=False) 
     
-    # --- Tipe File (PENTING) ---
     # Ini buat nandain dia file apa: 'proposal', 'documentation_image', 'documentation_article'
     vtype = Column(String(50), nullable=False, index=True) 
 
     # --- Standar Kolom ---
     nstatus = Column(Integer, nullable=False, default=1) # 1 = Active, 0 = Inactive (soft delete)
-    vcreated_by = Column(String(255), nullable=False) 
-    vmodified_by = Column(String(255), nullable=True)
-    dcreated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    dmodified_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
-    dsort_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow) 
+    
+    dcreated_at = Column(DateTime, default=now_wib)
+    vcreated_by = Column(String(100), nullable=True)
+    dmodified_at = Column(DateTime, onupdate=now_wib)
+    vmodified_by = Column(String(100), nullable=True)
+    
+    dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib)
 
     # --- Relationships ---
     # Relasi balik ke Booking (Banyak file dimiliki 1 booking)

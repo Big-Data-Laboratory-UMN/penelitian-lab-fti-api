@@ -5,6 +5,21 @@ from datetime import datetime
 from ..models import labModel as models
 from ..schemas import labSchema as schema, usersSchema
 
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+now_wib = datetime.now(JAKARTA_TZ)
+
+
+# --- HELPERS ---
+
+def to_wib(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return JAKARTA_TZ.localize(dt)
+    return dt.astimezone(JAKARTA_TZ)
+
 
 def get_lab_by_code_and_name(db: Session, vcode: str, vname: str):
     return db.query(models.Lab).filter(
@@ -26,7 +41,7 @@ def get_lab(db: Session, lab_id: int):
 def create_lab(db: Session, lab: schema.LabCreate, current_user: usersSchema.User):
     db_lab = models.Lab(**lab.model_dump())
     db_lab.vcreated_by = current_user.vcode
-    db_lab.dsort_at = datetime.utcnow()
+    db_lab.dsort_at = now_wib
 
     try:
         db.add(db_lab)
@@ -57,7 +72,7 @@ def update_lab(db: Session, lab_vcode: str, lab: schema.LabUpdate, current_user:
     db_lab.ncapacity = lab.ncapacity
     db_lab.nstatus = lab.nstatus
     db_lab.vmodified_by = current_user.vcode
-    db_lab.dsort_at = datetime.utcnow()
+    db_lab.dsort_at = now_wib
 
     try:
         db.commit()
@@ -119,7 +134,7 @@ def delete_lab(db: Session, lab_vcode: str, current_user: usersSchema.User):
     if db_lab:
         db_lab.nstatus = 0
         db_lab.vmodified_by = current_user.vcode
-        db_lab.dsort_at = datetime.utcnow()
+        db_lab.dsort_at = now_wib
         db.commit()
         db.refresh(db_lab)
     return db_lab

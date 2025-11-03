@@ -5,6 +5,20 @@ from datetime import datetime
 from ..models import permissionsModel as models
 from ..schemas import permissionsSchema as schema
 
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+now_wib = datetime.now(JAKARTA_TZ)
+
+
+# --- HELPERS ---
+
+def to_wib(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return JAKARTA_TZ.localize(dt)
+    return dt.astimezone(JAKARTA_TZ)
 
 def get_permission_by_code_and_name(db: Session, vcode: str, vname: str):
     """
@@ -36,7 +50,7 @@ def create_permission(db: Session, permission: schema.PermissionCreate):
     """
 
     db_permission = models.Permissions(**permission.model_dump())
-    db_permission.dsort_at = datetime.utcnow()
+    db_permission.dsort_at = now_wib
 
     try:
         db.add(db_permission)
@@ -69,7 +83,7 @@ def update_permission(db: Session, permission_vcode: str, permission: schema.Per
     db_permission.vdesc = permission.vdesc
     db_permission.nstatus = permission.nstatus
     db_permission.vmodified_by = permission.vmodified_by
-    db_permission.dsort_at = datetime.utcnow()
+    db_permission.dsort_at = now_wib
 
     try:
         db.add(db_permission)
@@ -139,7 +153,7 @@ def delete_permission(db: Session, permission_vcode: str):
     if db_permission:
         db_permission.nstatus = 0
         db_permission.vmodified_by = "system"
-        db_permission.dsort_at = datetime.utcnow()
+        db_permission.dsort_at = now_wib
         db.commit()
         db.refresh(db_permission)
     return db_permission

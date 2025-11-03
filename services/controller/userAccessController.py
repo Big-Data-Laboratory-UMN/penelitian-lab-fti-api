@@ -6,6 +6,21 @@ from ..models import userAccessModel as models
 from ..models import rolesModel, usersModel, departmentModel, labModel 
 from ..schemas import userAccessSchema as schema
 
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+now_wib = datetime.now(JAKARTA_TZ)
+
+
+# --- HELPERS ---
+
+def to_wib(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return JAKARTA_TZ.localize(dt)
+    return dt.astimezone(JAKARTA_TZ)
+
 def get_user_access_by_code(db: Session, vcode: str):
     return db.query(models.UserAccess).filter(models.UserAccess.vcode == vcode).first()
 
@@ -25,7 +40,7 @@ def create_user_access(db: Session, user_access: schema.UserAccessCreate):
         raise ValueError("Failed to save. This exact access assignment (User, Role, Dept, Lab) already exists.")
     
     db_user_access = models.UserAccess(**user_access.model_dump())
-    db_user_access.dsort_at = datetime.utcnow()
+    db_user_access.dsort_at = now_wib
 
     try:
         db.add(db_user_access)
@@ -67,7 +82,7 @@ def update_user_access(db: Session, user_access_vcode: str, user_access: schema.
     db_user_access.nid_lab = user_access.nid_lab 
     db_user_access.nstatus = user_access.nstatus
     db_user_access.vmodified_by = user_access.vmodified_by
-    db_user_access.dsort_at = datetime.utcnow()
+    db_user_access.dsort_at = now_wib
 
     try:
         db.add(db_user_access)
@@ -159,7 +174,7 @@ def delete_user_access(db: Session, user_access_vcode: str, current_user: str):
     if db_user_access:
         db_user_access.nstatus = 0
         db_user_access.vmodified_by = current_user
-        db_user_access.dsort_at = datetime.utcnow()
+        db_user_access.dsort_at = now_wib
         db.commit()
         db.refresh(db_user_access)
     return db_user_access

@@ -5,6 +5,21 @@ from datetime import datetime
 from ..models import departmentModel as models
 from ..schemas import departmentSchema as schema, usersSchema
 
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+now_wib = datetime.now(JAKARTA_TZ)
+
+
+# --- HELPERS ---
+
+def to_wib(dt):
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return JAKARTA_TZ.localize(dt)
+    return dt.astimezone(JAKARTA_TZ)
+
 
 def get_department_by_code_and_name(db: Session, vcode: str, vname: str):
     return db.query(models.Department).filter(
@@ -26,7 +41,7 @@ def get_department(db: Session, department_id: int):
 def create_department(db: Session, department: schema.DepartmentCreate, current_user: usersSchema.User):
     db_department = models.Department(**department.model_dump())
     db_department.vcreated_by = current_user.vcode
-    db_department.dsort_at = datetime.utcnow()
+    db_department.dsort_at = now_wib
 
     try:
         db.add(db_department)
@@ -56,7 +71,7 @@ def update_department(db: Session, department_vcode: str, department: schema.Dep
     db_department.vdesc = department.vdesc
     db_department.nstatus = department.nstatus
     db_department.vmodified_by = current_user.vcode
-    db_department.dsort_at = datetime.utcnow()
+    db_department.dsort_at = now_wib
 
     try:
         db.commit()
@@ -118,7 +133,7 @@ def delete_department(db: Session, department_vcode: str, current_user: usersSch
     if db_department:
         db_department.nstatus = 0
         db_department.vmodified_by = current_user.vcode
-        db_department.dsort_at = datetime.utcnow()
+        db_department.dsort_at = now_wib
         db.commit()
         db.refresh(db_department)
     return db_department
