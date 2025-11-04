@@ -173,9 +173,14 @@ def get_all_bookings(
     user_roles: Set[str],
     skip: int = 0,
     limit: int = 10,
-    vsearch: str = ""
+    vsearch: str = "",
+    dstart: datetime | None = None,
+    dend: datetime | None = None,
+    nstatus: int | None = None,
+    nid_lab: int | None = None, 
+    nid_facility: int | None = None,
 ):
-    base_query = db.query(Booking).options(
+    query = db.query(Booking).options(
         joinedload(Booking.user),
         joinedload(Booking.lab_facility).joinedload(LabFacility.lab),
         joinedload(Booking.lab_facility).joinedload(LabFacility.facility),
@@ -187,15 +192,15 @@ def get_all_bookings(
     if not managed_lab_ids:
          return {"data": [], "total": 0}
     
-    base_query = base_query.join(
+    query = query.join(
         LabFacility, Booking.nid_lab_facility == LabFacility.nid
     ).filter(
         LabFacility.nid_lab.in_(managed_lab_ids)
     )
 
     if vsearch:
-        base_query = base_query.join(Booking.user).join(labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid)
-        base_query = base_query.filter(
+        query = query.join(Booking.user).join(labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid)
+        query = query.filter(
             or_(
                 Booking.vcode.ilike(f"%{vsearch}%"),
                 Booking.vactivity.ilike(f"%{vsearch}%"),
@@ -204,8 +209,24 @@ def get_all_bookings(
             )
         )
 
-    total = base_query.count()
-    results = base_query.order_by(Booking.dsort_at.desc()).offset(skip).limit(limit).all()
+    if nstatus is not None:
+        query = query.filter(Booking.nstatus == nstatus)
+    if nid_facility is not None:
+        query = query.filter(LabFacility.nid_facility == nid_facility)
+    if nid_lab is not None:
+        query = query.filter(LabFacility.nid_lab == nid_lab)
+    if dstart is not None and dend is not None:
+        query = query.filter(
+            func.date(Booking.dstart) <= dend,
+            func.date(Booking.dend) >= dstart
+        )
+    elif dstart is not None:
+        query = query.filter(func.date(Booking.dend) >= dstart)
+    elif dend is not None:
+        query = query.filter(func.date(Booking.dstart) <= dend)
+
+    total = query.count()
+    results = query.order_by(Booking.dsort_at.desc()).offset(skip).limit(limit).all()
 
     return {"data": results, "total": total}
 
@@ -215,24 +236,32 @@ def get_all_bookings_by_user(
     current_user: usersModel.User,
     skip: int = 0,
     limit: int = 10,
-    vsearch: str = ""
+    vsearch: str = "",
+    dstart: datetime | None = None,
+    deend: datetime | None = None,
+    nstatus: int | None = None,
+    nid_lab: int | None = None, 
+    nid_facility: int | None = None,
 ):
-    base_query = db.query(Booking).options(
+    query = db.query(Booking).options(
         joinedload(Booking.lab_facility).joinedload(LabFacility.lab),
         joinedload(Booking.lab_facility).joinedload(LabFacility.facility),
         selectinload(Booking.booking_files).joinedload(BookingFile.file)
     ).filter(Booking.nid_user == current_user.nid)
     
     if vsearch:
-         base_query = base_query.join(Booking.lab_facility).join(labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid).filter(
+         query = query.join(Booking.lab_facility).join(labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid).filter(
             or_(
                 Booking.vcode.ilike(f"%{vsearch}%"), Booking.vactivity.ilike(f"%{vsearch}%"),
                 labModel.Lab.vname.ilike(f"%{vsearch}%"),
             )
         )
+    
+    if nstatus is not None:
+        query = query.filter(Booking.nstatus == nstatus)
          
-    total = base_query.count()
-    results = base_query.order_by(Booking.dsort_at.desc()).offset(skip).limit(limit).all()
+    total = query.count()
+    results = query.order_by(Booking.dsort_at.desc()).offset(skip).limit(limit).all()
     return {"data": results, "total": total}
 
 def get_booking_by_id(db: Session, booking_id: int):

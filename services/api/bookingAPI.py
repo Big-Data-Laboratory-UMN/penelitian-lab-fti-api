@@ -120,18 +120,28 @@ def read_all_bookings_api(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=30),
     vsearch: str = Query(default=""),
+    status: Optional[int] = None,
+    dateStart: Optional[datetime] = None,
+    dateEnd: Optional[datetime] = None,
+    nidLab: Optional[int] = None, 
+    nidFacility: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     user_roles = check_management_access(db, current_user)
     
     return bookingController.get_all_bookings(
-        db=db,
+        db=db,``
         current_user=current_user,
         user_roles=user_roles,
         skip=skip,
         limit=limit,
-        vsearch=vsearch
+        vsearch=vsearch,
+        nstatus=status,
+        nid_lab=nidLab,
+        nid_facility=nidFacility,
+        dstart=to_wib(dateStart),
+        dend=to_wib(dateEnd)
     )
 
 # 3. GET MY BOOKINGS (User)

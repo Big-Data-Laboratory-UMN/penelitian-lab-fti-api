@@ -6,7 +6,7 @@ import threading
 import sys
 import time
 
-from fastapi import Depends, HTTPException, status, Request # Ditambah Request
+from fastapi import Depends, HTTPException, status, Request, Response # Ditambah Response
 from fastapi_apscheduler import scheduler
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -20,6 +20,8 @@ from ..models import usersModel as models
 from ..models import tokenModel
 from ..schemas import usersSchema as schema
 from utils.email_service import send_activation_email, send_email_change_verification_email
+# Import util refresh token
+from utils.token_refresh import refresh_access_cookie, RefreshConfig
 from ..database import SessionLocal
 
 jakarta_tz = pytz.timezone("Asia/Jakarta")
@@ -50,6 +52,33 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30")) # Default 30 hari
 
 # oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/users/token") # Gak dipake lagi buat get_current_user via cookie
+
+
+# --- Config & Wrapper untuk Refresh Token ---
+
+class _AuthControllerWrapper:
+    """
+    Wrapper internal untuk meneruskan fungsi refresh_access_token 
+    (dari file ini) ke util refresh_access_cookie.
+    """
+    @staticmethod
+    async def refresh_access_token(db: Session, refresh_token: str) -> tuple[str, int]:
+        # Panggil fungsi 'refresh_access_token' yang didefinisikan di file ini
+        return await refresh_access_token(db=db, refresh_token=refresh_token)
+
+auth_controller_wrapper = _AuthControllerWrapper()
+
+# Konfigurasi untuk util refresh_access_cookie
+refresh_cfg = RefreshConfig(
+    access_cookie_key="access_token",
+    refresh_cookie_key="refresh_token",
+    access_cookie_path="/",
+    refresh_cookie_path="/users/refresh_token", # Pastikan sesuai dengan endpoint refresh di API
+    cookie_secure=os.getenv("COOKIE_SECURE", "True").lower() == "true",
+    cookie_samesite=os.getenv("COOKIE_SAMESITE", "lax"),
+    access_cookie_max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60 # Konversi menit ke detik
+)
+
 
 def get_db():
     db = SessionLocal()
@@ -147,6 +176,11 @@ async def refresh_access_token(db: Session, refresh_token: str) -> tuple[str, in
 
 # --- Fungsi Get Current User (Baru, dari Cookie) ---
 async def get_current_user_from_cookie(request: Request, db: Session = Depends(get_db)):
+    """
+    Versi standar: Coba dapatkan user dari access_token.
+    Jika token expired atau tidak valid, fungsi ini akan GAGAL (raise 401).
+    Fungsi ini tetap ada jika diperlukan dependency yang tidak auto-refresh.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials from cookie",
@@ -178,11 +212,143 @@ async def get_current_user_from_cookie(request: Request, db: Session = Depends(g
     return user
 
 # --- Fungsi Get Current Active User (Baru, dari Cookie) ---
-async def get_current_active_user_from_cookie(current_user: schema.User = Depends(get_current_user_from_cookie)):
-    if current_user.nstatus != 1:
-        print(f"Get current active user failed: User NID {current_user.nid} is inactive (status: {current_user.nstatus}).")
-        raise HTTPException(status_code=400, detail="Inactive user")
-    return current_user
+# === FUNGSI YANG DIMODIFIKASI ===
+async def get_current_active_user_from_cookie(
+    request: Request, 
+    response: Response, 
+    db: Session = Depends(get_db)
+):
+    """
+    Dependency baru: Coba dapatkan user dari access_token.
+    Jika access_token tidak ada atau expired, otomatis coba refresh
+    menggunakan refresh_token. Jika berhasil, set cookie baru dan 
+    lanjutkan. Jika gagal (refresh token juga invalid), baru raise 401.
+    Setelah user didapat, cek nstatus == 1.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials from cookie (active check)",
+    )
+    token = request.cookies.get(refresh_cfg.access_cookie_key) # Gunakan cfg
+    
+    user_nid = None # Inisialisasi user_nid
+    
+    if token is None:
+        print("Get current active user failed: Access token cookie not found.")
+        print("Attempting token refresh because access token is missing...")
+        try:
+            # Coba refresh
+            refresh_result = await refresh_access_cookie(
+                request=request,
+                response=response,
+                db=db,
+                users_controller=auth_controller_wrapper, # Pakai wrapper
+                cfg=refresh_cfg
+            )
+            # Jika sukses, token baru sudah di-set di cookie.
+            # Ambil token baru dari hasil refresh untuk di-decode
+            token = refresh_result.get("access_token") 
+            if not token: # Safety check
+                raise credentials_exception
+            print("Refresh successful (after missing token). Proceeding with new token.")
+        
+        except HTTPException as refresh_exc:
+            print(f"Refresh failed (after missing token): {refresh_exc.detail}")
+            # Re-raise dengan detail yang lebih spesifik
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Sesi tidak valid atau sudah berakhir. (Refresh Failed: {refresh_exc.detail})",
+            )
+
+    # (Lanjut ke try-decode)
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str | None = payload.get("sub")
+        if user_id is None:
+            print("Get current active user failed: User ID (sub) not found in token payload.")
+            raise credentials_exception
+        user_nid = int(user_id)
+    
+    except JWTError as e: # Tangkap JWTError spesifik
+        error_msg = str(e).lower()
+        print(f"Get current active user failed: Token decode error. Error: {error_msg}")
+        
+        # Cek apakah error karena expired
+        if "expired" in error_msg:
+            print("Access token expired. Attempting token refresh...")
+            try:
+                # Panggil refresh_access_cookie
+                refresh_result = await refresh_access_cookie(
+                    request=request,
+                    response=response,
+                    db=db,
+                    users_controller=auth_controller_wrapper, # Pakai wrapper
+                    cfg=refresh_cfg
+                )
+                # Jika sukses, token baru ada di response cookie.
+                # Kita decode token *baru* ini
+                new_token = refresh_result.get("access_token")
+                if not new_token: # Safety check
+                    raise credentials_exception
+                    
+                payload = jwt.decode(new_token, SECRET_KEY, algorithms=[ALGORITHM])
+                user_id: str | None = payload.get("sub")
+                if user_id is None:
+                     print("Get current active user failed: User ID (sub) not found in *refreshed* token.")
+                     raise credentials_exception
+                user_nid = int(user_id)
+                print("Refresh successful. Proceeding with new token.")
+
+            except HTTPException as refresh_exc:
+                print(f"Refresh failed (after token expired): {refresh_exc.detail}")
+                # Re-raise dengan detail yang lebih spesifik
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Sesi Anda telah berakhir dan gagal diperbarui. ({refresh_exc.detail})",
+                )
+            except (JWTError, ValueError) as decode_e: # Error pas decode token baru (aneh)
+                print(f"Get current active user failed: Error decoding *refreshed* token. Error: {decode_e}")
+                raise credentials_exception
+        
+        else: # JWTError tapi bukan expired (misal signature invalid)
+            print("Token invalid (not expired). Raising 401.")
+            raise credentials_exception
+    
+    except ValueError as e: # Gagal int(user_id)
+         print(f"Get current active user failed: Invalid User ID (ValueError). Error: {e}")
+         raise credentials_exception
+    
+    # --- (Validasi User) ---
+    if user_nid is None: # Safety check jika logic di atas gagal
+         print("Get current active user failed: User NID not determined.")
+         raise credentials_exception
+
+    user = get_user(db, user_id=user_nid)
+    if user is None:
+        # Jika user tidak ditemukan di DB (misal dihapus), hapus cookie
+        print(f"Get current active user failed: User with NID {user_nid} not found in database. Deleting cookies.")
+        response.delete_cookie(
+            refresh_cfg.refresh_cookie_key,
+            path=refresh_cfg.refresh_cookie_path,
+            secure=refresh_cfg.cookie_secure,
+            samesite=refresh_cfg.cookie_samesite,
+        )
+        response.delete_cookie(
+            refresh_cfg.access_cookie_key,
+            path=refresh_cfg.access_cookie_path,
+            secure=refresh_cfg.cookie_secure,
+            samesite=refresh_cfg.cookie_samesite,
+        )
+        raise credentials_exception
+
+    # --- (Validasi Status Aktif - dari fungsi asli) ---
+    if user.nstatus != 1:
+        print(f"Get current active user failed: User NID {user.nid} is inactive (status: {user.nstatus}).")
+        raise HTTPException(status_code=400, detail="Inactive user") 
+    
+    print(f"Get current active user successful: User NID {user.nid}, Email {user.vemail}")
+    return user
+
 
 # --- Fungsi CRUD dan Operasi User Lainnya (umumny hanya dependency auth yg berubah di API layer) ---
 

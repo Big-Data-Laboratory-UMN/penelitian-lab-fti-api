@@ -9,6 +9,8 @@ from ..controller import usersController
 from ..models import usersModel as models
 from ..database import SessionLocal # Import SessionLocal untuk db_factory
 
+from utils.token_refresh import RefreshConfig, refresh_access_cookie
+
 from datetime import datetime
 import pytz
 
@@ -42,6 +44,17 @@ SHORT_REFRESH_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 # 1 hari dalam detik
 # Sesuaikan environment (development vs production)
 COOKIE_SECURE = False # Ganti True kalo udah HTTPS
 COOKIE_SAMESITE = 'lax' # 'strict' lebih aman tapi kadang kurang fleksibel -> ganti ke strict kalo udah production dan semua di HTTPS
+
+
+cfg = RefreshConfig(
+    access_cookie_key="access_token",
+    refresh_cookie_key="refresh_token",
+    access_cookie_path="/",
+    refresh_cookie_path="/users/refresh_token",
+    cookie_secure=COOKIE_SECURE,
+    cookie_samesite=COOKIE_SAMESITE,
+    access_cookie_max_age=ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS,
+)
 
 @router.post("/token") # Hapus response_model=schema.TokenResponse
 async def login_for_access_token(
@@ -145,63 +158,19 @@ async def login_for_access_token(
             detail="Terjadi kesalahan pada server saat mencoba login."
         )
 
-@router.post("/refresh_token", response_model=schema.NewAccessTokenResponse)
+@router.post("/refresh_token")
 async def refresh_token_endpoint(
     request: Request,
     response: Response,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """
-    Endpoint refresh token. Baca refresh token dari cookie, validasi,
-    dan set access token baru di cookie.
-    """
-    print("[API /refresh_token] Refresh token request received.")
-    refresh_token_from_cookie = request.cookies.get("refresh_token")
-    if not refresh_token_from_cookie:
-         print("[API /refresh_token] Refresh failed: Refresh token cookie not found.")
-         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Sesi tidak valid atau sudah berakhir (RF Token Missing).",
-        )
-
-    try:
-        new_access_token, user_nid = await usersController.refresh_access_token(
-            db=db, refresh_token=refresh_token_from_cookie
-        )
-        print(f"[API /refresh_token] Refresh successful for user NID: {user_nid}.")
-
-        # Set cookie access token baru
-        response.set_cookie(
-            key="access_token",
-            value=new_access_token,
-            httponly=True,
-            max_age=ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS,
-            expires=ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS,
-            path="/",
-            secure=COOKIE_SECURE,
-            samesite=COOKIE_SAMESITE
-        )
-        print(f"[API /refresh_token] New access token cookie set.")
-
-        # Kembalikan response body (opsional)
-        return {"access_token": new_access_token, "token_type": "bearer", "access_expires_in": ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS}
-
-    except HTTPException as e:
-         print(f"[API /refresh_token] Refresh failed: {e.detail} (Status: {e.status_code})")
-         if e.status_code == status.HTTP_401_UNAUTHORIZED:
-             print("[API /refresh_token] Deleting invalid refresh and access token cookies.")
-             response.delete_cookie("refresh_token", path="/users/refresh_token", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
-             response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
-             e.detail = "Sesi tidak valid atau sudah berakhir (RF Invalid/Expired)."
-         raise e
-    except Exception as e:
-        print(f"[API /refresh_token] Unexpected error during token refresh: {e}")
-        response.delete_cookie("refresh_token", path="/users/refresh_token", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
-        response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Gagal memperbarui sesi."
-        )
+    return await refresh_access_cookie(
+        request=request,
+        response=response,
+        db=db,
+        users_controller=usersController,
+        cfg=cfg,
+    )
 
 # --- Endpoint yang Membutuhkan Autentikasi ---
 # Menggunakan dependency usersController.get_current_active_user_from_cookie
