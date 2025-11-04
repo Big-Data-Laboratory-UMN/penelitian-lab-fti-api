@@ -84,6 +84,32 @@ def check_admin_or_sa(db: Session, user: usersSchema.User):
         raise HTTPException(status_code=403, detail="Not authorized. Admin or Superadmin required.")
     return True
 
+def check_sa_adm_pic(db: Session, user: usersSchema.User):
+    """
+    Memeriksa apakah user adalah SA, ADM, atau PIC.
+    """
+    user_access_roles = db.query(rolesModel.Role.vcode).join(
+        userAccessModel.UserAccess, rolesModel.Role.nid == userAccessModel.UserAccess.nid_role
+    ).filter(
+        userAccessModel.UserAccess.nid_user == user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+    
+    user_roles = {role[0] for role in user_access_roles} # Ambil vcode
+    
+    allowed_roles = {"SA", "ADM", "PIC"}
+    
+    # Cek apakah ada irisan antara role user dan role yang diizinkan
+    if not user_roles.intersection(allowed_roles):
+        print(f"[AUTH] Gagal: User {user.vemail} (Roles: {user_roles}) mencoba akses endpoint SA/ADM/PIC.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya Superadmin, Admin, atau PIC yang dapat melakukan aksi ini."
+        )
+    
+    # Jika lolos, user punya salah satu role tersebut
+    print(f"[AUTH] Sukses: User {user.vemail} (Roles: {user_roles}) diizinkan.")
+
 # 1. CREATE BOOKING (User)
 @router.post("/", response_model=bookingSchema.BookingSchema, status_code=201)
 async def create_booking_api(
@@ -346,3 +372,22 @@ def trigger_scoped_pic_reminder_api(
     )
     
     return {"message": "Tugas pengingat (reminder) ke PIC di bawah departemen Anda telah dimulai."}
+
+@router.post("/trigger-documentation-reminder", response_model=dict, status_code=status.HTTP_202_ACCEPTED)
+def trigger_documentation_reminder_api(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Cek apakah user adalah SA, ADM, atau PIC
+    check_sa_adm_pic(db, current_user) 
+    
+    background_tasks.add_task(
+        bookingController.trigger_documentation_reminders, # <-- Fungsi baru kita
+        db=db, # Wajib pass db
+        current_user=current_user, # Wajib pass user
+        request_base_url=str(request.base_url)
+    )
+    
+    return {"message": "Tugas pengingat (reminder) dokumentasi ke user telah dimulai."}

@@ -18,6 +18,7 @@ from ..models.departmentLabModel import DepartmentLab
 
 from ..schemas.bookingSchema import BookingSchema
 from ..schemas.bookingFilesSchema import BookingFileCreate
+from ..schemas.usersSchema import User
 
 from . import fileController
 
@@ -954,5 +955,149 @@ async def trigger_scoped_pending_reminders_to_pics(admin_user_nid: int, request_
 
     except Exception as e:
         print(f"[Reminder Job ERROR - SCOPED] Gagal total: {str(e)}")
+    finally:
+        db.close()
+
+async def trigger_documentation_reminders(
+    db: Session, 
+    current_user: User, 
+    request_base_url: str
+):
+    """
+    Mengirim email reminder ke USER yang booking-nya berstatus 4 (Waiting For Documentation),
+    sesuai dengan scope dari current_user (SA, ADM, atau PIC).
+    """
+    print(f"[Doc Reminder Job] Dimulai oleh: {current_user.vemail}")
+    
+    try:
+        user_access_tuples = db.query(
+            UserAccess,
+            rolesModel.Role.vcode  # Ambil vcode langsung dari tabel Role
+        ).join(
+            rolesModel.Role, UserAccess.nid_role == rolesModel.Role.nid # Join manual
+        ).filter(
+            UserAccess.nid_user == current_user.nid,
+            UserAccess.nstatus == 1
+        ).all()
+        # Hasilnya adalah list of tuples: [(UserAccessObject1, 'SA'), (UserAccessObject2, 'ADM')]
+
+        if not user_access_tuples:
+            print(f"[Doc Reminder Job] Gagal: User {current_user.vemail} tidak punya role aktif.")
+            return
+
+        # Pisahkan vcode dan list access
+        user_role_codes = {vcode for access, vcode in user_access_tuples}
+        print(f"[Doc Reminder Job] Role terdeteksi: {user_role_codes}")
+        # --- SELESAI BAGIAN YANG DIGANTI ---
+
+
+        base_query = db.query(Booking).options(
+            joinedload(Booking.user),
+            joinedload(Booking.lab_facility).joinedload(LabFacility.lab)
+        ).filter(Booking.nstatus == 4)
+
+        bookings_to_remind = []
+
+        if "SA" in user_role_codes:
+            print("[Doc Reminder Job] Scope: SA (Global). Mengambil semua booking status 4.")
+            bookings_to_remind = base_query.all()
+        
+        elif "ADM" in user_role_codes:
+            # Dapatkan ID Departemen dari tuples
+            admin_dept_ids = set()
+            for access, vcode in user_access_tuples: # <--- Ganti logic perulangan
+                if vcode == "ADM" and access.nid_department:
+                    admin_dept_ids.add(access.nid_department)
+            
+            if not admin_dept_ids:
+                print("[Doc Reminder Job] Scope: ADM, tapi tidak ada departemen ter-assign. Selesai.")
+                return
+            
+            print(f"[Doc Reminder Job] Scope: ADM. Departemen: {admin_dept_ids}")
+            
+            # Query ini sudah benar (tidak bergantung pada relationship UserAccess)
+            scoped_query = base_query.join(
+                LabFacility, Booking.nid_lab_facility == LabFacility.nid
+            ).join(
+                labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid
+            ).join(
+                DepartmentLab, labModel.Lab.nid == DepartmentLab.nid_lab
+            ).filter(
+                DepartmentLab.nid_department.in_(admin_dept_ids)
+            )
+            bookings_to_remind = scoped_query.all()
+
+        elif "PIC" in user_role_codes:
+            # Dapatkan ID Lab dari tuples
+            pic_lab_ids = set()
+            for access, vcode in user_access_tuples: # <--- Ganti logic perulangan
+                if vcode == "PIC" and access.nid_lab:
+                    pic_lab_ids.add(access.nid_lab)
+
+            if not pic_lab_ids:
+                print("[Doc Reminder Job] Scope: PIC, tapi tidak ada lab ter-assign. Selesai.")
+                return
+
+            print(f"[Doc Reminder Job] Scope: PIC. Lab: {pic_lab_ids}")
+            
+            # Query ini sudah benar
+            scoped_query = base_query.join(
+                LabFacility, Booking.nid_lab_facility == LabFacility.nid
+            ).filter(
+                LabFacility.nid_lab.in_(pic_lab_ids)
+            )
+            bookings_to_remind = scoped_query.all()
+        
+        else:
+            print(f"[Doc Reminder Job] Gagal: User {current_user.vemail} tidak punya role SA/ADM/PIC.")
+            return
+
+        if not bookings_to_remind:
+            print("[Doc Reminder Job] Tidak ada booking berstatus 4 yang sesuai scope. Selesai.")
+            return
+
+        print(f"[Doc Reminder Job] Ditemukan {len(bookings_to_remind)} booking yang perlu diingatkan.")
+
+        reminders_map = defaultdict(lambda: {"name":     "", "bookings": []})
+        
+        for b in bookings_to_remind:
+            if not b.user:
+                continue
+            reminders_map[b.user.vemail]["name"] = b.user.vname
+            reminders_map[b.user.vemail]["bookings"].append(b)
+
+        if not reminders_map:
+            print("[Doc Reminder Job] Tidak ada user valid untuk dikirim email. Selesai.")
+            return
+            
+        print(f"[Doc Reminder Job] Akan mengirim reminder ke {len(reminders_map)} user.")
+
+        for user_email, data in reminders_map.items():
+            user_name = data["name"]
+            bookings_list = data["bookings"]
+            pending_count = len(bookings_list)
+            
+            bookings_html_list = "<ul>"
+            for b in bookings_list:
+                lab_name = b.lab_facility.lab.vname if b.lab_facility and b.lab_facility.lab else "Lab tidak diketahui"
+                bookings_html_list += f"""
+                <li style="margin-bottom: 10px;">
+                    <strong>{lab_name}</strong> - {b.vactivity}
+                    <br><small style='color: #555;'>Kode Booking: {b.vcode} (Selesai: {b.dend.strftime('%Y-%m-%d')})</small>
+                </li>
+                """
+            bookings_html_list += "</ul>"
+            
+            await email_service.send_documentation_reminder_email(
+                recipient_email=user_email,
+                user_name=user_name,
+                pending_count=pending_count,
+                bookings_html_list=bookings_html_list
+            )
+
+        print("[Doc Reminder Job] Semua email reminder dokumentasi telah di-queue.")
+
+    except Exception as e:
+        print(f"❌ [Doc Reminder Job] Terjadi error: {e}")
     finally:
         db.close()

@@ -640,3 +640,57 @@ async def send_pending_reminder_email(
     except Exception as e:
         print(f"❌ [Reminder ERROR] Gagal proses notifikasi ke {recipient_email}: {str(e)}")
         return False
+
+async def send_documentation_reminder_email(
+    recipient_email: str,
+    user_name: str,
+    pending_count: int,
+    bookings_html_list: str
+):
+    """
+    Mengirim email pengingat ke USER untuk segera upload dokumentasi.
+    """
+    
+    subject = f"Reminder: {pending_count} Booking Anda Menunggu Dokumentasi"
+    
+    main_content_html = f"""
+    <p>Halo, <strong>{user_name}</strong>!</p>
+    <p>Sistem kami mencatat ada <strong>{pending_count} booking</strong> Anda yang telah selesai namun 
+    belum diunggah dokumentasi kegiatannya. Berikut adalah daftarnya:</p>
+    
+    <div style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin: 25px 0;">
+        {bookings_html_list}
+    </div>
+    
+    <p>Mohon untuk segera mengunggah dokumentasi agar Anda dapat melakukan booking kembali di masa mendatang.</p>
+    """
+
+    base_url = BASE_URL_FRONTEND 
+    # Arahkan ke halaman 'My Bookings' user
+    my_bookings_url = f"{base_url}/booking" 
+
+    html_content = create_styled_html_body(
+            title="Reminder Upload Dokumentasi",
+            main_content=main_content_html,
+            button_text="Upload Dokumentasi Sekarang",
+            button_url=my_bookings_url,
+            footer_note="Email ini dikirim otomatis karena booking Anda terdeteksi belum melengkapi dokumentasi."
+        )
+
+    try:
+        email_sukses = await send_email_async(
+                recipients=[recipient_email],
+                subject=subject,
+                html_content=html_content
+            )
+        
+        if email_sukses:
+            print(f"✅ [Doc Reminder] Sukses kirim notifikasi ({pending_count} item) ke {recipient_email}")
+            return True
+        else:
+            print(f"❌ [Doc Reminder] Gagal kirim email (setelah retry) ke {recipient_email}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ [Doc Reminder] Error saat kirim email ke {recipient_email}: {e}")
+        return False
