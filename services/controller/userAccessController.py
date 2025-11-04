@@ -196,7 +196,7 @@ def get_user_roles_by_user_id(db: Session, user_id: int) -> list[str]:
             models.UserAccess.nid_user == user_id,
             models.UserAccess.nstatus == 1, 
             rolesModel.Role.nstatus == 1 
-        )
+        ).distinct(rolesModel.Role.vcode)
         .all()
     )
     role_codes = [role.vcode for role in user_access_list]

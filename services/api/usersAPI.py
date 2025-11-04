@@ -133,8 +133,12 @@ async def login_for_access_token(
         print(f"[API /token] Refresh token cookie set (expires in {refresh_token_duration_seconds}s, path: /users/refresh_token).")
         # --- End Set Cookies ---
 
-        user_response = schema.User.model_validate(user)
+        user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=user.nid)
+        base = schema.User.model_validate(user).model_dump()
+        user_response = schema.UserWithRoles(**base, roles=user_roles)
+        
         print(f"[API /token] Login successful for {user.vemail}. Returning user data.")
+        
         return {"user": user_response, "refresh_token": refresh_token, "access_token": access_token, "token_type": "bearer", "access_expires_in": ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS, "refresh_expires_in": refresh_token_duration_seconds}
 
     except ValueError as e:
