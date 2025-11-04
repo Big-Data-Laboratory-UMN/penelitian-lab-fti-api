@@ -131,7 +131,7 @@ def read_all_bookings_api(
     user_roles = check_management_access(db, current_user)
     
     return bookingController.get_all_bookings(
-        db=db,``
+        db=db,
         current_user=current_user,
         user_roles=user_roles,
         skip=skip,
