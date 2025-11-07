@@ -98,7 +98,7 @@ def read_all_department_labs_for_dropdown(db: Session = Depends(get_db), current
     department_labs_data = departmentLabController.get_all_department_labs_for_dropdown(db=db)
     return department_labs_data
 
-@router.get("/labs-by-department/{department_id}", tags=["Department Lab"])
+@router.get("/labs-by-department/{department_id}")
 def get_labs_by_department(
     department_id: int, 
     db: Session = Depends(get_db), 
