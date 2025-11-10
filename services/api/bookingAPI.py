@@ -394,3 +394,21 @@ def trigger_documentation_reminder_api(
     )
     
     return {"message": "Tugas pengingat (reminder) dokumentasi ke user telah dimulai."}
+
+@router.post("/remind-documentation/{booking_code}", response_model=dict, status_code=status.HTTP_202_ACCEPTED)
+def trigger_single_documentation_reminder_api(
+    booking_code: str, # Ambil dari URL
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Pake checker yang udah ada buat mastiin yg akses SA/ADM/PIC
+    check_sa_adm_pic(db, current_user) 
+    
+    # Panggil controller baru kita
+    return bookingController.trigger_single_documentation_reminder(
+        db=db,
+        current_user=current_user,
+        booking_code=booking_code,
+        background_tasks=background_tasks
+    )
