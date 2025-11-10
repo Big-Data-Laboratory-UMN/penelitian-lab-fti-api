@@ -115,7 +115,9 @@ def check_sa_adm_pic(db: Session, user: usersSchema.User):
 async def create_booking_api(
     request: Request,
     background_tasks: BackgroundTasks,
-    nid_lab_facility: int = Form(...),
+    # nid_lab_facility: int = Form(...),
+    nid_lab: int = Form(...),
+    nid_facility: int = Form(...),
     dstart: datetime = Form(...),
     dend: datetime = Form(...),
     vactivity: str = Form(...),
@@ -127,7 +129,8 @@ async def create_booking_api(
         raise HTTPException(status_code=400, detail="File proposal harus berformat PDF.")
     new_booking = await bookingController.create_booking(
         db=db, current_user=current_user, request=request,
-        nid_lab_facility=nid_lab_facility, dstart=dstart, dend=dend,
+        # nid_lab_facility=nid_lab_facility, 
+        dstart=dstart, dend=dend, nid_lab=nid_lab, nid_facility=nid_facility,
         vactivity=vactivity, proposal_file=proposal_file
     )
 

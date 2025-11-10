@@ -99,3 +99,22 @@ def read_all_facility_labs_for_dropdown(db: Session = Depends(get_db), current_u
     check_forbidden_roles(db, current_user)
     facility_labs_data = labFacilityController.get_all_facility_labs_for_dropdown(db=db)
     return facility_labs_data
+
+@router.get("/facilities-by-labs/{lab_id}")
+def get_labs_by_department(
+    lab_id: int, 
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    check_forbidden_roles(db, current_user) 
+    
+    try:
+        facilities = labFacilityController.get_facilities_by_labs_for_dropdown(
+            db=db, lab_id=lab_id
+        )
+        return facilities
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"Internal server error: {e}") 
+        raise HTTPException(status_code=500, detail="Internal Server Error")

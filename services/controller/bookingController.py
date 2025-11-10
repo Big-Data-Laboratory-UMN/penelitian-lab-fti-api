@@ -15,6 +15,7 @@ from ..models.labFacilityModel import LabFacility
 from ..models import usersModel, rolesModel, labModel, facilityModel, filesModel
 from ..models.userAccessModel import UserAccess
 from ..models.departmentLabModel import DepartmentLab
+from ..models.labFacilityModel import LabFacility
 
 from ..schemas.bookingSchema import BookingSchema
 from ..schemas.bookingFilesSchema import BookingFileCreate
@@ -277,13 +278,28 @@ def get_booking_by_id(db: Session, booking_id: int):
         raise HTTPException(status_code=404, detail="Booking not found")
     return db_booking
 
-async def create_booking(db: Session, current_user: usersModel.User, request: Request, nid_lab_facility: int, dstart: datetime, dend: datetime, vactivity: str, proposal_file: UploadFile):
+async def create_booking(db: Session, current_user: usersModel.User, request: Request, 
+                        #  nid_lab_facility: int, 
+                        nid_lab: int,
+                        nid_facility: int,
+                         dstart: datetime, dend: datetime, vactivity: str, proposal_file: UploadFile):
     if dend <= dstart:
         raise HTTPException(status_code=400, detail="End date must be after start date")
     
-    lab_facility = db.query(LabFacility).get(nid_lab_facility)
-    if not lab_facility or lab_facility.nstatus != 1:
-        raise HTTPException(status_code=404, detail="Lab/Facility not found or not active")
+    lab_facility = db.query(LabFacility).filter(
+        LabFacility.nid_lab == nid_lab,
+        LabFacility.nid_facility == nid_facility,
+        LabFacility.nstatus == 1
+    ).first()
+    
+    if not lab_facility:
+        raise HTTPException(status_code=404, detail="Kombinasi Lab dan Fasilitas tidak ditemukan atau tidak aktif")
+    
+    # lab_facility = db.query(LabFacility).get(nid_lab_facility)
+    # if not lab_facility or lab_facility.nstatus != 1:
+    #     raise HTTPException(status_code=404, detail="Lab/Facility not found or not active")
+    
+    nid_lab_facility = lab_facility.nid
         
     is_available = check_booking_availability(
         db, lab_facility_id=nid_lab_facility,
