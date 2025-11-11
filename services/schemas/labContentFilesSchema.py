@@ -2,7 +2,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
-class LabContent(BaseModel):
+class LabContentFiles(BaseModel):
     nid: int
     vcode: str
     nid_lab_content: int
@@ -12,3 +12,7 @@ class LabContent(BaseModel):
     vmodified_by: Optional[str] = None
     dmodified_at: Optional[datetime] = None
     nstatus: int
+
+class LabContentFilesResponse(BaseModel):
+    value: LabContentFiles | None
+    found: bool

@@ -14,7 +14,7 @@ class LabContentFiles(Base):
     nid = Column(Integer, primary_key=True, autoincrement=True)
 
     vcode = Column(String(100), unique=True, index=True)
-    nid_lab_content = Column(Integer,ForeignKey("tblm_lab_content.nid"), nullable=False)
+    nid_lab_content = Column(Integer,ForeignKey("tblr_lab_content.nid"), nullable=False)
     nid_file = Column(Integer,ForeignKey("tblm_files.nid"), nullable=False)
 
     vcreated_by = Column(String(100), nullable=True)

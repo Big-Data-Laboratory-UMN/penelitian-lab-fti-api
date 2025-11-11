@@ -42,7 +42,7 @@ def get_lab_contents(
     total = query.count()
 
     # Urutkan berdasarkan waktu terakhir diubah/dibuat
-    query = query.order_by(models.LabContent.dsort_at.desc())
+    query = query.order_by(models.LabContent.dcreated_at.desc())
 
     data = query.offset(skip).limit(limit).all()
 

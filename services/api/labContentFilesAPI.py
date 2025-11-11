@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, Response, status # type: ignore
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from ..schemas import labContentSchema as schema, usersSchema
+from ..schemas import labContentFilesSchema as schema, usersSchema
 from ..controller import labContentFilesController, userAccessController, usersController
 from ..database import SessionLocal
 
@@ -29,13 +29,24 @@ def get_db():
         db.close()
 
 
-@router.get("/{nid_lab_content}", response_model=schema.LabContentResponse)
+@router.get("/{nid_lab_content}", response_model=schema.LabContentFilesResponse)
 def get_lab_content_file(
     nid_lab_content: int, 
+    response: Response,
     db: Session = Depends(get_db),
-
+    
 ):
     lab_contents_data = labContentFilesController.get_lab_content_file(
         db=db, nid_lab_content=nid_lab_content
     )
-    return lab_contents_data
+    if len(lab_contents_data) == 0:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return schema.LabContentFilesResponse(
+            value=None,
+            found=False
+        )
+    
+    return schema.LabContentFilesResponse(
+        value=lab_contents_data[0],
+        found=True
+    )

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, Response, status # type: ignore
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -32,10 +32,20 @@ def get_db():
 @router.get("/{nid_landing_page_section}", response_model=schema.LandingPageImageResponse)
 def get_home_content_file(
     nid_landing_page_section: int, 
-    db: Session = Depends(get_db),
 
+    response: Response,
+    db: Session = Depends(get_db),
 ):
-    home_images_contents_data = landingPageImagesController.get_landing_page_images(
+    home_images_contents_data = landingPageImagesController.get_landing_page_image(
         db=db, nid_landing_page_section=nid_landing_page_section
     )
-    return home_images_contents_data
+    if home_images_contents_data is None:
+        response.status_code = status.HTTP_404_NOT_FOUND
+        return schema.LandingPageImageResponse(
+            value=None,
+            found=False
+        )
+    return schema.LandingPageImageResponse(
+        value=home_images_contents_data,
+        found=True
+    )

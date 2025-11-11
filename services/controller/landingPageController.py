@@ -1,6 +1,12 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, desc, update, delete
+from typing import TypedDict, Required, NotRequired
 from ..models import landingPageModel as models
+from ..schemas import landingPageSchema as schema, usersSchema
+
+class LandingPageData(TypedDict):
+    data: list[models.LandingPages]
+    total: int
 
 def get_landing_pages(
     db: Session,
@@ -12,7 +18,7 @@ def get_landing_pages(
     vdesc: str | None = None,
     vsection_name: str | None = None,
     nstatus: int | None = None
-):
+) -> LandingPageData:
     query = db.query(models.LandingPages)
 
     if search:
@@ -38,7 +44,7 @@ def get_landing_pages(
     total = query.count()
 
     # Urutkan berdasarkan waktu terakhir diubah/dibuat
-    query = query.order_by(models.LandingPages.dsort_at.desc())
+    query = query.order_by(models.LandingPages.vcreated_by.desc())
 
     data = query.offset(skip).limit(limit).all()
 
