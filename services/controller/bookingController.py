@@ -1224,3 +1224,45 @@ async def task_send_single_doc_reminder(booking_id: int):
     finally:
         db.close() # Penting: selalu tutup sesi DB
         
+
+def get_pending_booking_count(db: Session, current_user: usersModel.User, user_roles: Set[str]):
+    """
+    Menghitung jumlah booking yang berstatus 'Pending' (2)
+    sesuai dengan scope lab yang dikelola user.
+    """
+    # Ambil ID lab yang dikelola user ini
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    
+    if not managed_lab_ids:
+        return {"count": 0} # Kalo gak ngelola apa-apa, count-nya 0
+    
+    # Query count yang di-scope
+    count = db.query(Booking.nid).join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).filter(
+        Booking.nstatus == 2, # 2 = Pending
+        LabFacility.nid_lab.in_(managed_lab_ids) # Filter sesuai scope
+    ).count()
+    
+    return {"count": count}
+
+def get_waiting_doc_booking_count(db: Session, current_user: usersModel.User, user_roles: Set[str]):
+    """
+    Menghitung jumlah booking yang berstatus 'Waiting For Documentation' (4)
+    sesuai dengan scope lab yang dikelola user.
+    """
+    # Ambil ID lab yang dikelola user ini
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    
+    if not managed_lab_ids:
+        return {"count": 0} # Kalo gak ngelola apa-apa, count-nya 0
+    
+    # Query count yang di-scope
+    count = db.query(Booking.nid).join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).filter(
+        Booking.nstatus == 4, # 4 = WaitingForDoc
+        LabFacility.nid_lab.in_(managed_lab_ids) # Filter sesuai scope
+    ).count()
+    
+    return {"count": count}

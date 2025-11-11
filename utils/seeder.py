@@ -105,9 +105,15 @@ def seed_data():
             print("Tabel 'tbls_users' kosong, memulai seeding user...")
             users_to_seed = [
                 {'vcode': '66852', 'vname': 'Samuel Rai', 'vphone': '6285210647118', 'vemail': 'samuel.rai@student.umn.ac.id', 'vaddress': 'ABC', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
-                {'vcode': '66853', 'vname': 'Sammy Admin Prodi', 'vphone': '628111111111', 'vemail': 'samuelraylovers1@gmail.com', 'vaddress': 'Dept Office', 'vpassword': None, 'nstatus': 3, 'vcreated_by': 'system-migration'},
-                {'vcode': '66854', 'vname': 'Ray PIC', 'vphone': '628222222222', 'vemail': 'samuelraylovers12@gmail.com', 'vaddress': 'Lab Office', 'vpassword': None, 'nstatus': 3, 'vcreated_by': 'system-migration'},
-                {'vcode': '66855', 'vname': 'Visitor', 'vphone': '628333333333', 'vemail': 'samuelrayraz12@gmail.com', 'vaddress': 'Somewhere', 'vpassword': None, 'nstatus': 3, 'vcreated_by': 'system-migration'},
+                {'vcode': '66853', 'vname': 'Admin TI', 'vphone': '628111111111', 'vemail': 'samuelraycontact1@gmail.com', 'vaddress': 'Dept Office', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
+                {'vcode': '66854', 'vname': 'ADMIN SI', 'vphone': '628222222222', 'vemail': 'samuelrayraz12@gmail.com', 'vaddress': 'Lab Office', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
+                {'vcode': '66855', 'vname': 'ADMIN TK', 'vphone': '628333333333', 'vemail': 'samuelraydiscord1@gmail.com', 'vaddress': 'Somewhere', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
+                {'vcode': '66856', 'vname': 'PIC BDA', 'vphone': '628333333333', 'vemail': 'bigdata.lab@umn.ac.id', 'vaddress': 'Somewhere', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
+                {'vcode': '66857', 'vname': 'PIC CYBER', 'vphone': '628333333333', 'vemail': 'pandawalabs@gmail.com', 'vaddress': 'Somewhere', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
+                {'vcode': '66858', 'vname': 'PIC DIGINT', 'vphone': '628333333333', 'vemail': 'samuelraylovers1@gmail.com', 'vaddress': 'Somewhere', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
+                {'vcode': '66859', 'vname': 'PIC AI', 'vphone': '628333333333', 'vemail': 'samuelraylovers2@gmail.com', 'vaddress': 'Somewhere', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
+                {'vcode': '66860', 'vname': 'PIC IOT', 'vphone': '628333333333', 'vemail': 'samuelraylovers12@gmail.com', 'vaddress': 'Somewhere', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
+                {'vcode': '66861', 'vname': 'VISITOR', 'vphone': '628333333333', 'vemail': 'homunityproperty@gmail.com', 'vaddress': 'Somewhere', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
             ]
             db.add_all([User(**user) for user in users_to_seed])
             db.commit()
@@ -162,12 +168,11 @@ def seed_data():
                         ))
             
             # --- Logic 2: Admin (66853) ---
-            # Role ADM, Dept SI, semua Lab di bawah SI
             user_adm = users.get("66853")
             role_adm = roles.get("ADM")
-            dept_si = departments.get("SI")
+            dept_si = departments.get("TI")
             if user_adm and role_adm and dept_si:
-                labs_for_si = labs_by_dept_code.get("SI", []) # Harusnya cuma ['BDA']
+                labs_for_si = labs_by_dept_code.get("TI", []) 
                 for lab_code in labs_for_si:
                     lab_obj = labs.get(lab_code)
                     if lab_obj:
@@ -175,14 +180,48 @@ def seed_data():
                             vcode=str(uuid.uuid4()),
                             nid_user=user_adm.nid,
                             nid_role=role_adm.nid,
-                            nid_department=dept_si.nid, # Dept SI
-                            nid_lab=lab_obj.nid,         # Lab BDA
+                            nid_department=dept_si.nid, 
+                            nid_lab=lab_obj.nid,         
+                            nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
+                        ))
+                        
+            user_adm = users.get("66854")
+            role_adm = roles.get("ADM")
+            dept_si = departments.get("SI")
+            if user_adm and role_adm and dept_si:
+                labs_for_si = labs_by_dept_code.get("SI", []) 
+                for lab_code in labs_for_si:
+                    lab_obj = labs.get(lab_code)
+                    if lab_obj:
+                        seeds.append(UserAccess(
+                            vcode=str(uuid.uuid4()),
+                            nid_user=user_adm.nid,
+                            nid_role=role_adm.nid,
+                            nid_department=dept_si.nid, 
+                            nid_lab=lab_obj.nid,         
+                            nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
+                        ))
+                        
+            user_adm = users.get("66855")
+            role_adm = roles.get("ADM")
+            dept_si = departments.get("TK")
+            if user_adm and role_adm and dept_si:
+                labs_for_si = labs_by_dept_code.get("TK", []) 
+                for lab_code in labs_for_si:
+                    lab_obj = labs.get(lab_code)
+                    if lab_obj:
+                        seeds.append(UserAccess(
+                            vcode=str(uuid.uuid4()),
+                            nid_user=user_adm.nid,
+                            nid_role=role_adm.nid,
+                            nid_department=dept_si.nid, 
+                            nid_lab=lab_obj.nid,         
                             nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
                         ))
 
             # --- Logic 3: PIC (66854) ---
             # Role PIC, Dept SI, Lab BDA
-            user_pic = users.get("66854")
+            user_pic = users.get("66856")
             role_pic = roles.get("PIC")
             dept_pic_home = departments.get("SI") 
             lab_pic = labs.get("BDA")
@@ -195,10 +234,66 @@ def seed_data():
                     nid_lab=lab_pic.nid,          
                     nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
                 ))
+                 
+            user_pic = users.get("66857")
+            role_pic = roles.get("PIC")
+            dept_pic_home = departments.get("TI") 
+            lab_pic = labs.get("CYBER")
+            if user_pic and role_pic and dept_pic_home and lab_pic:
+                 seeds.append(UserAccess(
+                    vcode=str(uuid.uuid4()),
+                    nid_user=user_pic.nid,
+                    nid_role=role_pic.nid,
+                    nid_department=dept_pic_home.nid, 
+                    nid_lab=lab_pic.nid,          
+                    nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
+                ))
+                 
+            user_pic = users.get("66858")
+            role_pic = roles.get("PIC")
+            dept_pic_home = departments.get("TK") 
+            lab_pic = labs.get("DIGINT")
+            if user_pic and role_pic and dept_pic_home and lab_pic:
+                 seeds.append(UserAccess(
+                    vcode=str(uuid.uuid4()),
+                    nid_user=user_pic.nid,
+                    nid_role=role_pic.nid,
+                    nid_department=dept_pic_home.nid, 
+                    nid_lab=lab_pic.nid,          
+                    nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
+                ))
+                 
+            user_pic = users.get("66859")
+            role_pic = roles.get("PIC")
+            dept_pic_home = departments.get("TI") 
+            lab_pic = labs.get("AI")
+            if user_pic and role_pic and dept_pic_home and lab_pic:
+                 seeds.append(UserAccess(
+                    vcode=str(uuid.uuid4()),
+                    nid_user=user_pic.nid,
+                    nid_role=role_pic.nid,
+                    nid_department=dept_pic_home.nid, 
+                    nid_lab=lab_pic.nid,          
+                    nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
+                ))
+                 
+            user_pic = users.get("66860")
+            role_pic = roles.get("PIC")
+            dept_pic_home = departments.get("TK") 
+            lab_pic = labs.get("IOT")
+            if user_pic and role_pic and dept_pic_home and lab_pic:
+                 seeds.append(UserAccess(
+                    vcode=str(uuid.uuid4()),
+                    nid_user=user_pic.nid,
+                    nid_role=role_pic.nid,
+                    nid_department=dept_pic_home.nid, 
+                    nid_lab=lab_pic.nid,          
+                    nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
+                ))
 
             # --- Logic 4: Visitor (66855) ---
             # Role VSTR, Dept NULL, Lab NULL
-            user_vstr = users.get("66855")
+            user_vstr = users.get("66861")
             role_vstr = roles.get("VSTR")
             if user_vstr and role_vstr:
                  seeds.append(UserAccess(

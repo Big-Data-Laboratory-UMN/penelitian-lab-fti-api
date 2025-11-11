@@ -412,3 +412,33 @@ def trigger_single_documentation_reminder_api(
         booking_code=booking_code,
         background_tasks=background_tasks
     )
+    
+@router.get("/stats/pending-count", response_model=dict)
+def get_pending_count_api(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Cek akses manajemen (SA/ADM/PIC)
+    user_roles = check_management_access(db, current_user)
+    
+    # Panggil controller baru
+    return bookingController.get_pending_booking_count(
+        db=db, 
+        current_user=current_user, 
+        user_roles=user_roles
+    )
+
+@router.get("/stats/waiting-doc-count", response_model=dict)
+def get_waiting_doc_count_api(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Cek akses manajemen (SA/ADM/PIC)
+    user_roles = check_management_access(db, current_user)
+    
+    # Panggil controller baru
+    return bookingController.get_waiting_doc_booking_count(
+        db=db, 
+        current_user=current_user, 
+        user_roles=user_roles
+    )
