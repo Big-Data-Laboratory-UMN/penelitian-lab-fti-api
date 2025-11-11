@@ -149,3 +149,25 @@ def get_all_facility_labs_for_dropdown(db: Session):
         .all()
     )
     return {"data": facilityLab}
+
+
+def get_facilities_by_labs_for_dropdown(db: Session, lab_id: int):
+    try:
+        facilities = (
+            db.query(facilityModel.Facility.nid, facilityModel.Facility.vname) 
+            .join(models.LabFacility, models.LabFacility.nid_facility == facilityModel.Facility.nid)
+            .filter(
+                models.LabFacility.nid_lab == lab_id,
+                facilityModel.Facility.nstatus == 1 
+            )
+            .order_by(facilityModel.Facility.vname)
+            .all()
+        )
+        
+        # Format datanya
+        formatted_facilities = [{"nid": facility.nid, "vname": facility.vname} for facility in facilities]
+        
+        return {"data": formatted_facilities}
+
+    except Exception as e:
+        raise ValueError(str(e))

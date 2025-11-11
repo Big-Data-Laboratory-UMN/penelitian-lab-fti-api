@@ -115,7 +115,9 @@ def check_sa_adm_pic(db: Session, user: usersSchema.User):
 async def create_booking_api(
     request: Request,
     background_tasks: BackgroundTasks,
-    nid_lab_facility: int = Form(...),
+    # nid_lab_facility: int = Form(...),
+    nid_lab: int = Form(...),
+    nid_facility: int = Form(...),
     dstart: datetime = Form(...),
     dend: datetime = Form(...),
     vactivity: str = Form(...),
@@ -127,7 +129,8 @@ async def create_booking_api(
         raise HTTPException(status_code=400, detail="File proposal harus berformat PDF.")
     new_booking = await bookingController.create_booking(
         db=db, current_user=current_user, request=request,
-        nid_lab_facility=nid_lab_facility, dstart=dstart, dend=dend,
+        # nid_lab_facility=nid_lab_facility, 
+        dstart=dstart, dend=dend, nid_lab=nid_lab, nid_facility=nid_facility,
         vactivity=vactivity, proposal_file=proposal_file
     )
 
@@ -391,3 +394,51 @@ def trigger_documentation_reminder_api(
     )
     
     return {"message": "Tugas pengingat (reminder) dokumentasi ke user telah dimulai."}
+
+@router.post("/remind-documentation/{booking_code}", response_model=dict, status_code=status.HTTP_202_ACCEPTED)
+def trigger_single_documentation_reminder_api(
+    booking_code: str, # Ambil dari URL
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Pake checker yang udah ada buat mastiin yg akses SA/ADM/PIC
+    check_sa_adm_pic(db, current_user) 
+    
+    # Panggil controller baru kita
+    return bookingController.trigger_single_documentation_reminder(
+        db=db,
+        current_user=current_user,
+        booking_code=booking_code,
+        background_tasks=background_tasks
+    )
+    
+@router.get("/stats/pending-count", response_model=dict)
+def get_pending_count_api(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Cek akses manajemen (SA/ADM/PIC)
+    user_roles = check_management_access(db, current_user)
+    
+    # Panggil controller baru
+    return bookingController.get_pending_booking_count(
+        db=db, 
+        current_user=current_user, 
+        user_roles=user_roles
+    )
+
+@router.get("/stats/waiting-doc-count", response_model=dict)
+def get_waiting_doc_count_api(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Cek akses manajemen (SA/ADM/PIC)
+    user_roles = check_management_access(db, current_user)
+    
+    # Panggil controller baru
+    return bookingController.get_waiting_doc_booking_count(
+        db=db, 
+        current_user=current_user, 
+        user_roles=user_roles
+    )

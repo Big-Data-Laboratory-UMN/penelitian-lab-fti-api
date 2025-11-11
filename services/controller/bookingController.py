@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session, selectinload, joinedload
 from sqlalchemy import func, or_
-from fastapi import HTTPException, Request, UploadFile
+from fastapi import HTTPException, Request, UploadFile, BackgroundTasks
 import uuid
 import secrets
 from datetime import datetime
@@ -15,6 +15,7 @@ from ..models.labFacilityModel import LabFacility
 from ..models import usersModel, rolesModel, labModel, facilityModel, filesModel
 from ..models.userAccessModel import UserAccess
 from ..models.departmentLabModel import DepartmentLab
+from ..models.labFacilityModel import LabFacility
 
 from ..schemas.bookingSchema import BookingSchema
 from ..schemas.bookingFilesSchema import BookingFileCreate
@@ -277,13 +278,28 @@ def get_booking_by_id(db: Session, booking_id: int):
         raise HTTPException(status_code=404, detail="Booking not found")
     return db_booking
 
-async def create_booking(db: Session, current_user: usersModel.User, request: Request, nid_lab_facility: int, dstart: datetime, dend: datetime, vactivity: str, proposal_file: UploadFile):
+async def create_booking(db: Session, current_user: usersModel.User, request: Request, 
+                        #  nid_lab_facility: int, 
+                        nid_lab: int,
+                        nid_facility: int,
+                         dstart: datetime, dend: datetime, vactivity: str, proposal_file: UploadFile):
     if dend <= dstart:
         raise HTTPException(status_code=400, detail="End date must be after start date")
     
-    lab_facility = db.query(LabFacility).get(nid_lab_facility)
-    if not lab_facility or lab_facility.nstatus != 1:
-        raise HTTPException(status_code=404, detail="Lab/Facility not found or not active")
+    lab_facility = db.query(LabFacility).filter(
+        LabFacility.nid_lab == nid_lab,
+        LabFacility.nid_facility == nid_facility,
+        LabFacility.nstatus == 1
+    ).first()
+    
+    if not lab_facility:
+        raise HTTPException(status_code=404, detail="Kombinasi Lab dan Fasilitas tidak ditemukan atau tidak aktif")
+    
+    # lab_facility = db.query(LabFacility).get(nid_lab_facility)
+    # if not lab_facility or lab_facility.nstatus != 1:
+    #     raise HTTPException(status_code=404, detail="Lab/Facility not found or not active")
+    
+    nid_lab_facility = lab_facility.nid
         
     is_available = check_booking_availability(
         db, lab_facility_id=nid_lab_facility,
@@ -568,6 +584,55 @@ def delete_booking(
     db.commit()
 
     return {"detail": "Booking successfully deleted (soft delete)"}
+
+def trigger_single_documentation_reminder(
+    db: Session, 
+    current_user: User, 
+    booking_code: str,
+    background_tasks: BackgroundTasks
+):
+    """
+    Memicu reminder dokumentasi untuk satu booking spesifik (by vcode).
+    Hanya bisa dilakukan oleh SA/ADM/PIC yang punya scope ke lab tsb.
+    """
+    # 1. Ambil Role user (buat cek scope)
+    user_access_roles = db.query(rolesModel.Role.vcode).join(
+       UserAccess, rolesModel.Role.nid == UserAccess.nid_role
+    ).filter(
+        UserAccess.nid_user == current_user.nid,
+        UserAccess.nstatus == 1
+    ).all()
+    user_roles = {role[0] for role in user_access_roles}
+    
+    # 2. Cari Booking berdasarkan VCODE-nya
+    db_booking = db.query(Booking).options(
+        joinedload(Booking.lab_facility) # Cukup load ini buat cek scope
+    ).filter(Booking.vcode == booking_code).first()
+
+    # 3. Validasi: Booking Gak Ketemu
+    if not db_booking:
+        raise HTTPException(status_code=404, detail=f"Booking with code {booking_code} not found")
+
+    # 4. Validasi: Cek Scope
+    if not db_booking.lab_facility or not db_booking.lab_facility.nid_lab:
+         raise HTTPException(status_code=500, detail="Booking data is corrupted (missing lab facility link)")
+    
+    booked_lab_id = db_booking.lab_facility.nid_lab
+    # Pake helper check_booking_lab_scope
+    is_scoped = check_booking_lab_scope(db, current_user, user_roles, booked_lab_id)
+    
+    if not is_scoped:
+        raise HTTPException(status_code=403, detail="Not authorized. Anda hanya bisa me-remind booking di Lab yang Anda kelola.")
+
+    # 5. Validasi: Status Booking
+    if db_booking.nstatus != 4: #
+        raise HTTPException(status_code=409, detail=f"Booking {booking_code} is not 'Waiting For Documentation' (status 4).")
+    
+    # 6. Kalo lolos semua, lempar ke Background Task
+    background_tasks.add_task(task_send_single_doc_reminder, db_booking.nid) # Kirim NID-nya
+
+    # 7. Kasih response sukses
+    return {"message": f"Reminder for booking {booking_code} has been successfully queued."}
 
 async def notify_new_booking_to_admins(booking_id: int, request_base_url: str):
     """
@@ -1101,3 +1166,103 @@ async def trigger_documentation_reminders(
         print(f"❌ [Doc Reminder Job] Terjadi error: {e}")
     finally:
         db.close()
+        
+        
+async def task_send_single_doc_reminder(booking_id: int):
+    """
+    [BACKGROUND TASK] Mengirim email reminder dokumentasi tunggal ke user.
+    Mengambil data dari DB berdasarkan ID.
+    """
+    db: Session = SessionLocal() # Bikin sesi DB baru untuk task
+    try:
+        # Ambil data lengkap yang dibutuhin buat email
+        db_booking = db.query(Booking).options(
+            joinedload(Booking.user),
+            joinedload(Booking.lab_facility).joinedload(LabFacility.lab)
+        ).filter(Booking.nid == booking_id).first()
+
+        if not db_booking:
+            print(f"[Single Doc Reminder] Gagal: Booking NID {booking_id} tidak ditemukan.")
+            return
+
+        user_to_remind = db_booking.user
+        if not user_to_remind:
+            print(f"[Single Doc Reminder] Gagal: Booking {db_booking.vcode} (NID: {booking_id}) tidak memiliki data user.")
+            return
+        
+        # Cek ulang status, siapa tau udah di-submit pas task-nya jalan
+        if db_booking.nstatus != 4: #
+            print(f"[Single Doc Reminder] Dibatalkan: Booking {db_booking.vcode} (NID: {booking_id}) tidak lagi berstatus 4.")
+            return
+
+        # Siapin data buat email
+        user_email = user_to_remind.vemail
+        user_name = user_to_remind.vname
+        lab_name = db_booking.lab_facility.lab.vname if db_booking.lab_facility and db_booking.lab_facility.lab else "Lab tidak diketahui"
+        
+        # Bikin list HTML-nya (isinya cuma 1)
+        bookings_html_list = f"""
+        <ul>
+            <li style="margin-bottom: 10px;">
+                <strong>{lab_name}</strong> - {db_booking.vactivity}
+                <br><small style='color: #555;'>Kode Booking: {db_booking.vcode} (Selesai: {db_booking.dend.strftime('%Y-%m-%d')})</small>
+            </li>
+        </ul>
+        """
+        
+        # Panggil service email yang udah ada
+        await email_service.send_documentation_reminder_email(
+            recipient_email=user_email,
+            user_name=user_name,
+            pending_count=1,
+            bookings_html_list=bookings_html_list
+        )
+        print(f"[Single Doc Reminder] Sukses mengirim email untuk booking {db_booking.vcode} ke {user_email}.")
+    
+    except Exception as e:
+        print(f"❌ [Single Doc Reminder] Terjadi error untuk booking NID {booking_id}: {e}")
+    finally:
+        db.close() # Penting: selalu tutup sesi DB
+        
+
+def get_pending_booking_count(db: Session, current_user: usersModel.User, user_roles: Set[str]):
+    """
+    Menghitung jumlah booking yang berstatus 'Pending' (2)
+    sesuai dengan scope lab yang dikelola user.
+    """
+    # Ambil ID lab yang dikelola user ini
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    
+    if not managed_lab_ids:
+        return {"count": 0} # Kalo gak ngelola apa-apa, count-nya 0
+    
+    # Query count yang di-scope
+    count = db.query(Booking.nid).join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).filter(
+        Booking.nstatus == 2, # 2 = Pending
+        LabFacility.nid_lab.in_(managed_lab_ids) # Filter sesuai scope
+    ).count()
+    
+    return {"count": count}
+
+def get_waiting_doc_booking_count(db: Session, current_user: usersModel.User, user_roles: Set[str]):
+    """
+    Menghitung jumlah booking yang berstatus 'Waiting For Documentation' (4)
+    sesuai dengan scope lab yang dikelola user.
+    """
+    # Ambil ID lab yang dikelola user ini
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    
+    if not managed_lab_ids:
+        return {"count": 0} # Kalo gak ngelola apa-apa, count-nya 0
+    
+    # Query count yang di-scope
+    count = db.query(Booking.nid).join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).filter(
+        Booking.nstatus == 4, # 4 = WaitingForDoc
+        LabFacility.nid_lab.in_(managed_lab_ids) # Filter sesuai scope
+    ).count()
+    
+    return {"count": count}
