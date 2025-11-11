@@ -14,3 +14,7 @@ class LandingPage(BaseModel):
     dmodified_at: Optional[datetime] = None
     nstatus: int
     nid_image: Optional[int] = None
+
+class LandingPageResponse(BaseModel):
+    data: List[LandingPage]
+    total: int

@@ -2,6 +2,8 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
+
+
 class LabContent(BaseModel):
     nid: int
     vcode: str
@@ -14,3 +16,7 @@ class LabContent(BaseModel):
     vcreated_by: Optional[str] = None
     dmodified_at: Optional[datetime] = None
     vmodified_by: Optional[str] = None
+
+class LabContentResponse(BaseModel):
+    data: List[LabContent]
+    total: int

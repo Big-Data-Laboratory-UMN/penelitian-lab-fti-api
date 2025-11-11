@@ -12,3 +12,7 @@ class LandingPageImage(BaseModel):
     vmodified_by: Optional[str] = None
     dmodified_at: Optional[datetime] = None
     nstatus: int
+
+class LandingPageImageResponse(BaseModel):
+    data: List[LandingPageImage]
+    total: int
