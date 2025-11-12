@@ -96,12 +96,12 @@ def soft_delete_lab(lab_vcode: str, db: Session = Depends(get_db), current_user:
 
 @router.get("/all-for-dropdown/", response_model=schema.LabDropdownResponse)
 def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    check_forbidden_roles(db, current_user)
+    # check_forbidden_roles(db, current_user)
     labs_data = labController.get_all_labs_for_dropdown(db=db)
     return labs_data
 
 @router.get("/all-active-for-dropdown/", response_model=schema.LabDropdownResponse)
 def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    check_forbidden_roles(db, current_user)
+    # check_forbidden_roles(db, current_user)
     labs_data = labController.get_all_active_labs_for_dropdown(db=db)
     return labs_data

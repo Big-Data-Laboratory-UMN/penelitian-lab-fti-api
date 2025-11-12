@@ -179,12 +179,25 @@ def read_my_bookings_api(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=30),
     vsearch: str = Query(default=""),
+    status: Optional[int] = None,
+    dateStart: Optional[datetime] = None,
+    dateEnd: Optional[datetime] = None,
+    nidLab: Optional[int] = None, 
+    nidFacility: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     return bookingController.get_all_bookings_by_user(
-        db=db, current_user=current_user, skip=skip,
-        limit=limit, vsearch=vsearch
+        db=db,
+        current_user=current_user,
+        skip=skip,
+        limit=limit,
+        vsearch=vsearch,
+        nstatus=status,
+        nid_lab=nidLab,
+        nid_facility=nidFacility,
+        dstart=to_wib(dateStart),
+        dend=to_wib(dateEnd)
     )
     
 # 4. GET BOOKING BY ID (Owner or Admin/SA/PIC)
@@ -442,3 +455,17 @@ def get_waiting_doc_count_api(
         current_user=current_user, 
         user_roles=user_roles
     )
+    
+@router.post("/{booking_id}/cancel", response_model=bookingSchema.BookingSchema)
+async def cancel_booking_api(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    updated_booking = await bookingController.cancel_booking_by_owner(
+        db=db,
+        booking_id=booking_id,
+        current_user=current_user
+    )
+    
+    return updated_booking

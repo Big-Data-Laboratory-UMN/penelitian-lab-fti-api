@@ -240,27 +240,57 @@ def get_all_bookings_by_user(
     limit: int = 10,
     vsearch: str = "",
     dstart: datetime | None = None,
-    deend: datetime | None = None,
+    dend: datetime | None = None,
     nstatus: int | None = None,
     nid_lab: int | None = None, 
     nid_facility: int | None = None,
 ):
-    query = db.query(Booking).options(
-        joinedload(Booking.lab_facility).joinedload(LabFacility.lab),
-        joinedload(Booking.lab_facility).joinedload(LabFacility.facility),
+    query = db.query(Booking).filter(Booking.nid_user == current_user.nid)
+    
+    # [KEEP] Biarin aja outerjoin manual ini buat filter
+    query = query.outerjoin(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).outerjoin(
+        labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid
+    ).outerjoin(
+        facilityModel.Facility, LabFacility.nid_facility == facilityModel.Facility.nid
+    )
+    
+    # [UBAH] Ganti blok options lu jadi PAKE JOINEDLOAD
+    query = query.options(
+        # Ini akan bikin JOIN duplikat, tapi harusnya datanya ke-load
+        joinedload(Booking.lab_facility).joinedload(LabFacility.lab), 
+        joinedload(Booking.lab_facility).joinedload(LabFacility.facility), 
+        
+        # Ini udah bener
         selectinload(Booking.booking_files).joinedload(BookingFile.file)
-    ).filter(Booking.nid_user == current_user.nid)
+    )
     
     if vsearch:
-         query = query.join(Booking.lab_facility).join(labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid).filter(
+         query = query.filter(
             or_(
-                Booking.vcode.ilike(f"%{vsearch}%"), Booking.vactivity.ilike(f"%{vsearch}%"),
+                Booking.vcode.ilike(f"%{vsearch}%"), 
+                Booking.vactivity.ilike(f"%{vsearch}%"),
                 labModel.Lab.vname.ilike(f"%{vsearch}%"),
+                facilityModel.Facility.vname.ilike(f"%{vsearch}%")
             )
         )
     
     if nstatus is not None:
         query = query.filter(Booking.nstatus == nstatus)
+    if nid_facility is not None:
+        query = query.filter(LabFacility.nid_facility == nid_facility)
+    if nid_lab is not None:
+        query = query.filter(LabFacility.nid_lab == nid_lab)
+    if dstart is not None and dend is not None:
+        query = query.filter(
+            func.date(Booking.dstart) <= dend,
+            func.date(Booking.dend) >= dstart
+        )
+    elif dstart is not None:
+        query = query.filter(func.date(Booking.dend) >= dstart)
+    elif dend is not None:
+        query = query.filter(func.date(Booking.dstart) <= dend)
          
     total = query.count()
     results = query.order_by(Booking.dsort_at.desc()).offset(skip).limit(limit).all()
@@ -422,9 +452,8 @@ def update_booking_status(
              raise HTTPException(status_code=409, detail="Booking can only be canceled if Pending or Approved")
         
         db_booking.nstatus = new_status
-        if old_status == 1:
-            db_booking.dreviewed_at = None
-            db_booking.vreviewed_by = None
+        db_booking.dcanceled_at = now_wib()
+        
         modified = True
 
     elif new_status in [4, 5]: # Manual Override
@@ -1266,3 +1295,60 @@ def get_waiting_doc_booking_count(db: Session, current_user: usersModel.User, us
     ).count()
     
     return {"count": count}
+
+
+async def cancel_booking_by_owner(
+    db: Session,
+    booking_id: int,
+    current_user: usersModel.User
+):
+    """
+    Hanya owner yang bisa cancel booking, 
+    jika statusnya Pending (2) atau Approved (1).
+    """
+    db_booking = db.query(Booking).filter(
+        Booking.nid == booking_id
+    ).with_for_update().first()
+
+    if not db_booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if db_booking.nstatus == 0:
+        raise HTTPException(status_code=404, detail="Booking already deleted")
+
+    # 1. Cek Otorisasi: HARUS owner
+    if db_booking.nid_user != current_user.nid:
+        raise HTTPException(status_code=403, detail="Only the user who created this booking can cancel it.")
+        
+    old_status = db_booking.nstatus
+    
+    # 2. Cek Status: HARUS 1 (Approved) or 2 (Pending)
+    if old_status not in [1, 2]:
+        if old_status == 3:
+            raise HTTPException(status_code=409, detail="Booking is already canceled.")
+        elif old_status == 4:
+            raise HTTPException(status_code=409, detail="Booking is already waiting for documentation; cannot be canceled.")
+        elif old_status == 5:
+            raise HTTPException(status_code=409, detail="Booking is already completed; cannot be canceled.")
+        elif old_status == 0:
+            raise HTTPException(status_code=404, detail="Booking already rejected")
+        else:
+            raise HTTPException(
+                status_code=409, 
+                detail=f"Booking cannot be canceled because its status is not Pending or Approved (Current status: {old_status})."
+            )
+    
+    # 3. Kalo lolos, eksekusi
+    db_booking.nstatus = 3 # Set Canceled
+    db_booking.dcanceled_at = now_wib() # Catet waktunya
+    db_booking.vmodified_by = current_user.vcode
+    db_booking.dsort_at = now_wib()
+    
+    try:
+        db.commit()
+        db.refresh(db_booking)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menyimpan update status booking: {str(e)}")
+
+    # Kembalikan data utuh
+    return get_booking_by_id(db, db_booking.nid)

@@ -155,7 +155,7 @@ def read_all_facilities_for_dropdown(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user)
+    # check_forbidden_roles(db, current_user)
     facilities_data = facilityController.get_all_facilities_for_dropdown(db=db)
     return facilities_data
 
@@ -164,6 +164,6 @@ def read_all_facilities_for_dropdown(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user)
+    # check_forbidden_roles(db, current_user)
     facilities_data = facilityController.get_all_active_facilities_for_dropdown(db=db)
     return facilities_data

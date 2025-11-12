@@ -37,8 +37,8 @@ class LabFacility(Base):
     dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib) 
     
     bookings = relationship("Booking", back_populates="lab_facility")
-    lab = relationship("Lab")
-    facility = relationship("Facility")
+    lab = relationship("Lab", back_populates="lab_facilities")
+    facility = relationship("Facility", back_populates="lab_facilities")
 
     __table_args__ = (
         CheckConstraint('nstatus IN (0, 1)', name='chk_facility_lab_nstatus_values'),

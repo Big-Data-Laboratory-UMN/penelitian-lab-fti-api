@@ -106,7 +106,7 @@ def get_labs_by_department(
     db: Session = Depends(get_db), 
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user) 
+    # check_forbidden_roles(db, current_user) 
     
     try:
         facilities = labFacilityController.get_facilities_by_labs_for_dropdown(
