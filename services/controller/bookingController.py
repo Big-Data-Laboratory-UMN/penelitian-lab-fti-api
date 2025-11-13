@@ -1352,3 +1352,68 @@ async def cancel_booking_by_owner(
 
     # Kembalikan data utuh
     return get_booking_by_id(db, db_booking.nid)
+
+def get_all_bookings_no_pagination(
+    db: Session,
+    current_user: usersModel.User,
+    user_roles: Set[str],
+    vsearch: str = "",
+    dstart: datetime | None = None,
+    dend: datetime | None = None,
+    nstatus: int | None = None,
+    nid_lab: int | None = None, 
+    nid_facility: int | None = None,
+):
+    # --- LOGIC FILTER (COPY-PASTE DARI get_all_bookings) ---
+    query = db.query(Booking).options(
+        joinedload(Booking.user),
+        joinedload(Booking.lab_facility).joinedload(LabFacility.lab),
+        joinedload(Booking.lab_facility).joinedload(LabFacility.facility),
+        selectinload(Booking.booking_files).joinedload(BookingFile.file)
+    )
+
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    
+    if not managed_lab_ids:
+         return [] # Return list kosong
+    
+    query = query.join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).filter(
+        LabFacility.nid_lab.in_(managed_lab_ids)
+    )
+
+    if vsearch:
+        query = query.join(Booking.user).join(labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid)
+        query = query.filter(
+            or_(
+                Booking.vcode.ilike(f"%{vsearch}%"),
+                Booking.vactivity.ilike(f"%{vsearch}%"),
+                usersModel.User.vname.ilike(f"%{vsearch}%"),
+                labModel.Lab.vname.ilike(f"%{vsearch}%"),
+            )
+        )
+
+    if nstatus is not None:
+        query = query.filter(Booking.nstatus == nstatus)
+    if nid_facility is not None:
+        query = query.filter(LabFacility.nid_facility == nid_facility)
+    if nid_lab is not None:
+        query = query.filter(LabFacility.nid_lab == nid_lab)
+    
+    # Filter tanggal (wajib ada)
+    if dstart is not None and dend is not None:
+        query = query.filter(
+            func.date(Booking.dstart) <= dend,
+            func.date(Booking.dend) >= dstart
+        )
+    elif dstart is not None:
+        query = query.filter(func.date(Booking.dend) >= dstart)
+    elif dend is not None:
+        query = query.filter(func.date(Booking.dstart) <= dend)
+    # --- SELESAI LOGIC FILTER ---
+
+    # [PERBEDAAN] Langsung .all() tanpa skip/limit/total
+    results = query.order_by(Booking.dsort_at.desc()).all()
+
+    return results

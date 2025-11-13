@@ -14,6 +14,7 @@ from ..models import rolesModel, userAccessModel
 
 from ..schemas import bookingSchema, usersSchema
 
+import calendar
 
 from datetime import datetime
 import pytz
@@ -171,6 +172,39 @@ def read_all_bookings_api(
         nid_facility=nidFacility,
         dstart=to_wib(dateStart),
         dend=to_wib(dateEnd)
+    )
+
+@router.get("/by-month", response_model=List[bookingSchema.BookingSchema])
+def read_all_bookings_by_month_api(
+    month: int = Query(..., description="Filter by month (1-12).", ge=1, le=12),
+    year: int = Query(..., description="Filter by year (e.g., 2025).", ge=2020),
+    vsearch: str = Query(default=""),
+    status: Optional[int] = None,
+    nidLab: Optional[int] = None, 
+    nidFacility: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    user_roles = check_management_access(db, current_user)
+    
+    try:
+        _, num_days = calendar.monthrange(year, month)
+        dstart_calc = JAKARTA_TZ.localize(datetime(year, month, 1, 0, 0, 0))
+        dend_calc = JAKARTA_TZ.localize(datetime(year, month, num_days, 23, 59, 59))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid month or year value.")
+
+    # Panggil controller BARU
+    return bookingController.get_all_bookings_no_pagination(
+        db=db,
+        current_user=current_user,
+        user_roles=user_roles,
+        vsearch=vsearch,
+        nstatus=status,
+        nid_lab=nidLab,
+        nid_facility=nidFacility,
+        dstart=dstart_calc,
+        dend=dend_calc
     )
 
 # 3. GET MY BOOKINGS (User)
@@ -469,3 +503,4 @@ async def cancel_booking_api(
     )
     
     return updated_booking
+
