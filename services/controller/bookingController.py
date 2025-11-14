@@ -152,8 +152,6 @@ def trigger_update_overdue_bookings(db: Session):
     for booking in overdue_bookings:
         booking.nstatus = 4
         booking.vmodified_by = "SYSTEM_SCHEDULER"
-        booking.dreviewed_at = None
-        booking.vreviewed_by = None
         updated_ids.append(booking.nid)
         
     try:
@@ -461,9 +459,9 @@ def update_booking_status(
              raise HTTPException(status_code=403, detail="Hanya Admin atau Superadmin yang bisa ganti status manual ke 4 atau 5.")
         
          db_booking.nstatus = new_status
-         if old_status == 1:
-            db_booking.dreviewed_at = None
-            db_booking.vreviewed_by = None
+        #  if old_status == 1:
+        #     db_booking.dreviewed_at = None
+        #     db_booking.vreviewed_by = None
          modified = True
     
     else:
