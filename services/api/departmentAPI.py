@@ -102,3 +102,8 @@ def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_use
     check_forbidden_roles(db, current_user)
     departments_data = departmentController.get_all_active_departments_for_dropdown(db=db)
     return departments_data
+
+@router.get("/all-active-for-user-dropdown/", response_model=schema.DepartmentDropdownResponse)
+def read_all_departments_for_dropdown(db: Session = Depends(get_db)):
+    departments_data = departmentController.get_all_active_departments_for_dropdown(db=db, for_user=True)
+    return departments_data
