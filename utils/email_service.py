@@ -36,14 +36,15 @@ async def send_activation_email(
     recipient_email: str,
     user_name: str, 
     activation_token: str,
-    frontend_url: str = BASE_URL_FRONTEND
+    frontend_url: str = BASE_URL_FRONTEND,
+    path: str = "/auth/set-initial-password/"
 ) -> dict:
     """
     Send activation email with robust error handling.
     Returns dict with status and message.
     """
     
-    activation_link = f"{frontend_url}/auth/set-initial-password/{activation_token}"
+    activation_link = f"{frontend_url}{path}{activation_token}"
     
     msg = MIMEMultipart('alternative')
     msg['Subject'] = 'Aktivasi Akun Anda'
@@ -104,7 +105,7 @@ Tim Support
                                           color: white; text-decoration: none; padding: 15px 40px; 
                                           border-radius: 50px; font-weight: bold; font-size: 16px;
                                           box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
-                                    Aktivasi Akun & Set Password
+                                    Aktivasi Akun Anda
                                 </a>
                             </div>
                             

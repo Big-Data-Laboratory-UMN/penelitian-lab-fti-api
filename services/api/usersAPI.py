@@ -5,6 +5,7 @@ from typing import List, Optional, Annotated
 from datetime import timedelta, datetime
 from ..controller import userAccessController 
 from ..schemas import usersSchema as schema
+from ..schemas.usersSchema import UserRegister, ActivationToken
 from ..controller import usersController
 from ..models import usersModel as models
 from ..database import SessionLocal # Import SessionLocal untuk db_factory
@@ -229,6 +230,37 @@ async def create_user_from_admin_panel(
     except Exception as e:
          print(f"[API /admin-create] Unexpected error: {e}")
          raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal membuat pengguna.")
+
+
+@router.post("/register", response_model=schema.User, status_code=status.HTTP_201_CREATED)
+async def register_user_publicly(
+    user_data: UserRegister, # <-- Pake schema baru kita
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Endpoint publik untuk user registrasi baru."""
+    print(f"[API /register] Request registrasi diterima untuk email: {user_data.vemail}")
+    try:
+        # Panggil controller baru kita
+        new_user = await usersController.register_new_user(
+            db=db, 
+            user_data=user_data, 
+            app=request.app, 
+            db_factory=SessionLocal
+        )
+        print(f"[API /register] User {new_user.vemail} berhasil dibuat (Pending).")
+        return new_user
+    except ValueError as e:
+        error_detail = str(e)
+        print(f"[API /register] Gagal: {error_detail}")
+        # Cek error spesifik buat HTTP status code yg pas
+        if "sudah terdaftar" in error_detail or "sudah digunakan" in error_detail:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=error_detail)
+        else:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail)
+    except Exception as e:
+         print(f"[API /register] Unexpected error: {e}")
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mendaftarkan pengguna.")
 
 
 @router.put("/{user_vcode}", response_model=schema.User)
@@ -504,3 +536,29 @@ async def logout(response: Response):
     response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
     response.delete_cookie("refresh_token", path="/users/refresh_token", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
     return {"message": "Logout successful"}
+
+
+@router.post("/activate-account", response_model=schema.User)
+def activate_newly_registered_user(
+    token_data: ActivationToken, # <-- Pake schema token
+    db: Session = Depends(get_db)
+):
+    """Endpoint publik untuk aktivasi akun yang baru diregistrasi (status 2 -> 1)."""
+    print(f"[API /activate-account] Request aktivasi diterima untuk token: {token_data.token[:5]}...")
+    try:
+        # Panggil controller aktivasi baru kita
+        activated_user = usersController.activate_registered_user(db=db, token=token_data.token)
+        print(f"[API /activate-account] Akun berhasil diaktivasi untuk: {activated_user.vemail}")
+        return activated_user
+    except ValueError as e:
+        error_detail = str(e)
+        print(f"[API /activate-account] Gagal: {error_detail}")
+        status_code = status.HTTP_400_BAD_REQUEST
+        if "tidak valid" in error_detail or "kedaluwarsa" in error_detail or "digunakan" in error_detail or "tidak ditemukan" in error_detail:
+            status_code = status.HTTP_404_NOT_FOUND
+        elif "sudah aktif" in error_detail:
+             status_code = status.HTTP_409_CONFLICT
+        raise HTTPException(status_code=status_code, detail=error_detail)
+    except Exception as e:
+         print(f"[API /activate-account] Unexpected error: {e}")
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengaktifkan akun.")
