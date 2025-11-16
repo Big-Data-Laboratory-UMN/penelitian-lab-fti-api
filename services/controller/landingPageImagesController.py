@@ -3,13 +3,13 @@ from sqlalchemy.orm import Session
 
 def get_landing_page_image(
     db: Session,
-    nid_landing_page_section: int | None = None,
+    landing_page_vcode: str | None = None,
     nstatus: int | None = None,
 ):
     query = db.query(models.LandingPageImages)
 
-    if nid_landing_page_section is not None:
-        query = query.filter(models.LandingPageImages.nid_landing_page_section == nid_landing_page_section)
+    if landing_page_vcode is not None:
+        query = query.filter(models.LandingPageImages.vlandingpage_image_to_landingpage_vcode == landing_page_vcode)
     if nstatus is not None:
         query = query.filter(models.LandingPageImages.nstatus == nstatus)
 

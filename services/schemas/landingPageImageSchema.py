@@ -7,6 +7,7 @@ class LandingPageImage(BaseModel):
     vcode: str
     nid_file: int
     nid_landing_page_section: int
+    vlandingpage_image_to_landingpage_vcode: str
     vcreated_by: Optional[str] = None
     dcreated_at: Optional[datetime] = None
     vmodified_by: Optional[str] = None

@@ -29,15 +29,15 @@ def get_db():
         db.close()
 
 
-@router.get("/{nid_landing_page_section}", response_model=schema.LandingPageImageResponse)
+@router.get("/{landing_page_vcode}", response_model=schema.LandingPageImageResponse)
 def get_home_content_file(
-    nid_landing_page_section: int, 
+    landing_page_vcode: str, 
 
     response: Response,
     db: Session = Depends(get_db),
 ):
     home_images_contents_data = landingPageImagesController.get_landing_page_image(
-        db=db, nid_landing_page_section=nid_landing_page_section
+        db=db, landing_page_vcode=landing_page_vcode, nstatus=1
     )
     if home_images_contents_data is None:
         response.status_code = status.HTTP_404_NOT_FOUND

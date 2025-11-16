@@ -16,7 +16,7 @@ class LandingPageImages(Base):
     vcode = Column(String(100), unique=True, index=True)
     nid_file = Column(Integer,ForeignKey("tblm_files.nid"), nullable=False)
     nid_landing_page_section = Column(Integer,ForeignKey("tbls_landing_page.nid"), nullable=False)
-
+    vlandingpage_image_to_landingpage_vcode = Column(String(100), nullable=False)
     vcreated_by = Column(String(100), nullable=True)
     dcreated_at = Column(DateTime, default=now_wib)
     vmodified_by = Column(String(100), nullable=True)
