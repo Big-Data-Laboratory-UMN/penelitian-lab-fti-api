@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from sqlalchemy.orm import Session
 from typing import List, Optional, Annotated 
 from datetime import timedelta, datetime
-from ..controller import userAccessController 
+from ..controller import userAccessController, auditLogController
 from ..schemas import usersSchema as schema
 from ..schemas.usersSchema import UserRegister, ActivationToken,  RequestPasswordReset, ResetPassword
 from ..controller import usersController
@@ -60,6 +60,7 @@ cfg = RefreshConfig(
 @router.post("/token") # Hapus response_model=schema.TokenResponse
 async def login_for_access_token(
     response: Response, # Inject Response object
+    request: Request,
     # --- Terima form data secara manual ---
     username: str = Form(...), # Ambil username (email)
     password: str = Form(...), # Ambil password
@@ -76,14 +77,21 @@ async def login_for_access_token(
 
     try:
         # Autentikasi
-        user = usersController.authenticate_user(db, email=username, password=password)
+        user = usersController.authenticate_user(db, email=username, request=request, password=password)
         if not user:
-            print(f"[API /token] Login failed for {username}: Invalid credentials.")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Email atau password salah",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Email atau password salah",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        
+        try:
+            db.commit() # Ini buat nyimpen log LOGIN_SUCCESS
+        except Exception as commit_err:
+            db.rollback()
+            # Kalo log-nya gagal, gagalin login-nya juga
+            print(f"[AUDIT LOG ERROR] Gagal commit log LOGIN_SUCCESS: {commit_err}")
+            raise HTTPException(status_code=500, detail="Gagal mencatat log login.")
 
         # --- Tentukan durasi refresh token berdasarkan rememberMe ---
         if rememberMe:
@@ -220,7 +228,7 @@ async def create_user_from_admin_panel(
     try:
         user_data.vcreated_by = current_user.vcode
         new_user = await usersController.create_user_by_admin(
-            db=db, user_data=user_data, app=request.app, db_factory=SessionLocal
+            db=db, user_data=user_data, request=request, app=request.app, db_factory=SessionLocal
         )
         print(f"[API /admin-create] User {new_user.vemail} created successfully.")
         return new_user
@@ -246,6 +254,7 @@ async def register_user_publicly(
             db=db, 
             user_data=user_data, 
             app=request.app, 
+            request=request,
             db_factory=SessionLocal
         )
         print(f"[API /register] User {new_user.vemail} berhasil dibuat (Pending).")
@@ -294,7 +303,7 @@ async def update_existing_user(
     try:
         user_update_data.vmodified_by = current_user.vcode
         db_user = await usersController.update_user(
-            db=db, user_vcode=user_vcode, user=user_update_data, app=request.app, db_factory=SessionLocal
+            db=db, user_vcode=user_vcode, user=user_update_data, app=request.app, db_factory=SessionLocal, request=request
         )
         if db_user is None:
             print(f"[API PUT /users/{user_vcode}] Update failed: User not found.")
@@ -456,11 +465,11 @@ def read_all_users_for_dropdown(
 # --- Endpoint Publik (tidak butuh autentikasi) ---
 
 @router.post("/set-initial-password", response_model=schema.User)
-def set_user_initial_password(password_data: schema.SetInitialPassword, db: Session = Depends(get_db)):
+def set_user_initial_password(password_data: schema.SetInitialPassword, request: Request, db: Session = Depends(get_db)):
     """Endpoint publik untuk user set password awal pakai token aktivasi."""
     print(f"[API /set-initial-password] Request received for token: {password_data.token[:5]}...")
     try:
-        updated_user = usersController.set_initial_password(db=db, password_data=password_data)
+        updated_user = usersController.set_initial_password(db=db, request=request, password_data=password_data)
         print(f"[API /set-initial-password] Password set successfully for user: {updated_user.vemail}")
         return updated_user
     except ValueError as e:
@@ -510,11 +519,11 @@ def validate_activation_token_endpoint(token: str, db: Session = Depends(get_db)
 
 
 @router.get("/verify-email-change/{token}", response_model=schema.User)
-def verify_user_email_change(token: str, db: Session = Depends(get_db)):
+def verify_user_email_change(token: str, request: Request, db: Session = Depends(get_db)):
     """Endpoint publik untuk verifikasi perubahan email via token."""
     print(f"[API /verify-email-change/] Request received for token: {token[:5]}...")
     try:
-        updated_user = usersController.verify_and_update_email(db=db, token=token)
+        updated_user = usersController.verify_and_update_email(db=db, token=token, request=request)
         print(f"[API /verify-email-change/] Email change verified successfully for user: {updated_user.vemail}")
         return updated_user
     except ValueError as e:
@@ -530,9 +539,18 @@ def verify_user_email_change(token: str, db: Session = Depends(get_db)):
 
 # Endpoint logout (opsional tapi bagus)
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(response: Response, request: Request, db: Session = Depends(get_db), current_user: models.User = Depends(usersController.get_current_active_user_from_cookie)):
     """Menghapus cookie access dan refresh token."""
     print("[API /logout] Logout request received. Deleting token cookies.")
+    try:
+        auditLogController.create_security_log(
+            db=db, nid_user=current_user.nid, action="LOGOUT", request=request
+        )
+        db.commit() # Commit log-nya
+    except Exception as e:
+        print(f"[AUDIT LOG ERROR] Gagal nyimpen logout log: {e}")
+        db.rollback()
+
     response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
     response.delete_cookie("refresh_token", path="/users/refresh_token", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
     return {"message": "Logout successful"}
@@ -540,14 +558,15 @@ async def logout(response: Response):
 
 @router.post("/activate-account", response_model=schema.User)
 def activate_newly_registered_user(
-    token_data: ActivationToken, # <-- Pake schema token
+    token_data: ActivationToken,
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Endpoint publik untuk aktivasi akun yang baru diregistrasi (status 2 -> 1)."""
     print(f"[API /activate-account] Request aktivasi diterima untuk token: {token_data.token[:5]}...")
     try:
         # Panggil controller aktivasi baru kita
-        activated_user = usersController.activate_registered_user(db=db, token=token_data.token)
+        activated_user = usersController.activate_registered_user(db=db, request=request, token=token_data.token)
         print(f"[API /activate-account] Akun berhasil diaktivasi untuk: {activated_user.vemail}")
         return activated_user
     except ValueError as e:
@@ -575,6 +594,7 @@ async def request_password_reset_endpoint(
         response_message = await usersController.request_password_reset(
             db=db, 
             email=request_data.email, 
+            request=request,
             app=request.app, 
             db_factory=SessionLocal
         )
@@ -596,11 +616,11 @@ def validate_reset_token_endpoint(token: str, db: Session = Depends(get_db)):
     return result
 
 @router.post("/reset-password", response_model=schema.User)
-def reset_user_password(password_data: ResetPassword, db: Session = Depends(get_db)):
+def reset_user_password(password_data: ResetPassword,request: Request, db: Session = Depends(get_db)):
     """Endpoint publik untuk user set password baru pakai token reset."""
     print(f"[API /reset-password] Request received for token: {password_data.token[:5]}...")
     try:
-        updated_user = usersController.reset_password(db=db, password_data=password_data)
+        updated_user = usersController.reset_password(db=db, password_data=password_data, request=request)
         print(f"[API /reset-password] Password reset successfully for user: {updated_user.vemail}")
         return updated_user
     except ValueError as e:

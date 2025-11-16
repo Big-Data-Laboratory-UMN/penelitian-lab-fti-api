@@ -24,7 +24,7 @@ from utils.email_service import send_activation_email, send_email_change_verific
 # Import util refresh token
 from utils.token_refresh import refresh_access_cookie, RefreshConfig
 from ..database import SessionLocal
-
+from . import auditLogController
 from ..models import rolesModel, userAccessModel
 from ..schemas.usersSchema import UserRegister
 
@@ -117,36 +117,99 @@ def create_refresh_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 # --- Fungsi Autentikasi User ---
-def authenticate_user(db: Session, email: str, password: str) -> models.User | None:
+def authenticate_user(
+    db: Session, 
+    email: str, 
+    password: str, 
+    request: Request # <-- TAMBAH INI
+) -> models.User | None:
+    
     user = get_user_by_email(db, email=email)
 
     if not user:
         print(f"Login attempt failed: Email '{email}' not found.")
+        # --- LOG GAGAL ---
+        auditLogController.create_security_log(
+            db=db, nid_user=None, action="LOGIN_FAILED", 
+            request=request, details=f"Attempted email: {email}, reason: user not found"
+        )
+        db.commit()
+        # -------------------
         return None
 
     if user.nstatus == 0:
         print(f"Login attempt failed: User '{email}' is inactive.")
+        # --- LOG GAGAL ---
+        auditLogController.create_security_log(
+            db=db, nid_user=user.nid, action="LOGIN_FAILED", 
+            request=request, details="Reason: inactive user for user '{email}'"
+        )
+        db.commit()
+        # -------------------
         raise ValueError("Akun Anda tidak aktif.")
+        
     if user.nstatus == 2:
         print(f"Login attempt failed: User '{email}' is pending activation.")
+        # --- LOG GAGAL ---
+        auditLogController.create_security_log(
+            db=db, nid_user=user.nid, action="LOGIN_FAILED", 
+            request=request, details="Reason: pending activation for user '{email}'"
+        )
+        db.commit()
+        # -------------------
         raise ValueError("Akun Anda belum diaktivasi. Silakan cek email Anda.")
+        
     if user.nstatus == 3:
         print(f"Login attempt failed: User '{email}' activation expired.")
+        # --- LOG GAGAL ---
+        auditLogController.create_security_log(
+            db=db, nid_user=user.nid, action="LOGIN_FAILED", 
+            request=request, details="Reason: activation expired for user '{email}'"
+        )
+        db.commit()
+        # -------------------
         raise ValueError("Aktivasi akun Anda sudah kedaluwarsa. Silakan minta kirim ulang email aktivasi.")
+        
     if not user.vpassword:
          print(f"Login attempt failed: User '{email}' has no password set (likely created by admin).")
+         # --- LOG GAGAL ---
+         auditLogController.create_security_log(
+            db=db, nid_user=user.nid, action="LOGIN_FAILED", 
+            request=request, details="Reason: password not set for user '{email}'"
+         )
+         db.commit()
+         # -------------------
          raise ValueError("Password belum diatur. Silakan gunakan link aktivasi di email Anda.")
 
     if user.nstatus == 1 and user.vpassword:
         if not verify_password(password, user.vpassword):
             print(f"Login attempt failed: Invalid password for user '{email}'.")
+            # --- LOG GAGAL ---
+            auditLogController.create_security_log(
+                db=db, nid_user=user.nid, action="LOGIN_FAILED", 
+                request=request, details="Reason: invalid password for user '{email}'"
+            )
+            db.commit()
+            # -------------------
             return None
     else:
         # Kondisi ini seharusnya tidak terjadi jika nstatus=1, tapi jaga-jaga
         print(f"Login attempt failed: User '{email}' has invalid status ({user.nstatus}) or no password for verification.")
+        # --- LOG GAGAL ---
+        auditLogController.create_security_log(
+            db=db, nid_user=user.nid, action="LOGIN_FAILED", 
+            request=request, details=f"Reason: invalid state (status {user.nstatus})"
+        )
+        db.commit()
+        # -------------------
         return None
 
     print(f"Login attempt successful for user '{email}'.")
+    # --- LOG SUKSES ---
+    auditLogController.create_security_log(
+        db=db, nid_user=user.nid, action="LOGIN_SUCCESS", request=request
+    )
+    # ------------------
     return user
 
 # --- Fungsi Refresh Token (Diubah) ---
@@ -356,7 +419,7 @@ async def get_current_active_user_from_cookie(
 
 # --- Fungsi CRUD dan Operasi User Lainnya (umumny hanya dependency auth yg berubah di API layer) ---
 
-async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin, app=None, db_factory=None):
+async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin, request: Request, app=None, db_factory=None):
     # Logika fungsi ini tidak berubah
     db_user = models.User(**user_data.model_dump(), vpassword=None, nstatus=2)
     try:
@@ -377,6 +440,18 @@ async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin,
         db.add(db_token)
         db.commit()
         db.refresh(db_token)
+        
+        admin_user = get_user_by_code(db, user_code=user_data.vcreated_by)
+        admin_nid = admin_user.nid if admin_user else None
+        
+        auditLogController.create_security_log(
+            db=db, 
+            nid_user=admin_nid, # User yg login (admin)
+            action="ACCOUNT_CREATED_BY_ADMIN", 
+            request=request, 
+            details=f"New user created: {db_user.vemail} (NID: {db_user.nid})"
+        )
+        db.commit()
 
         try:
             await send_activation_email(
@@ -418,7 +493,7 @@ async def create_user_by_admin(db: Session, user_data: schema.UserCreateByAdmin,
         else:
             raise ValueError("Gagal menyimpan pengguna baru.")
 
-async def register_new_user(db: Session, user_data: UserRegister, app=None, db_factory=None):
+async def register_new_user(db: Session, user_data: UserRegister,request: Request, app=None, db_factory=None):
     """
     Membuat user baru dari registrasi publik (status Pending).
     """
@@ -481,6 +556,12 @@ async def register_new_user(db: Session, user_data: UserRegister, app=None, db_f
         
         db.refresh(db_user)
         db.refresh(db_token)
+        
+        auditLogController.create_security_log(
+            db=db, nid_user=db_user.nid, action="ACCOUNT_REGISTER_SUCCESS", 
+            request=request, details="Account created, pending activation."
+        )
+        db.commit()
 
     except IntegrityError as e:
         db.rollback()
@@ -527,7 +608,7 @@ async def register_new_user(db: Session, user_data: UserRegister, app=None, db_f
     return db_user
 
 
-async def update_user(db: Session, user_vcode: str, user: schema.UserUpdate, app=None, db_factory=None):
+async def update_user(db: Session, user_vcode: str, user: schema.UserUpdate, request: Request, app=None, db_factory=None):
     # Logika fungsi ini tidak berubah, termasuk pengiriman email verifikasi
     db_user = get_user_by_code(db, user_code=user_vcode)
     if not db_user:
@@ -564,6 +645,11 @@ async def update_user(db: Session, user_vcode: str, user: schema.UserUpdate, app
         try:
             db.commit() # Commit token dulu
             db.refresh(db_token)
+            auditLogController.create_security_log(
+                db=db, nid_user=db_user.nid, action="EMAIL_CHANGE_REQUEST", 
+                request=request, details=f"New email requested: {new_email}"
+            )
+            db.commit()
         except IntegrityError: # Jarang terjadi, tapi jaga-jaga kalo token vcode duplikat
             db.rollback()
             print(f"Email change failed: Could not save verification token for {new_email}.")
@@ -696,7 +782,7 @@ async def resend_activation_email(db: Session, user_vcode: str, app=None, db_fac
     return {"message": "Email aktivasi telah berhasil dikirim ulang."}
 
 
-def set_initial_password(db: Session, password_data: schema.SetInitialPassword):
+def set_initial_password(db: Session, password_data: schema.SetInitialPassword, request: Request):
     # Logika fungsi ini tidak berubah
     # Cari token aktivasi (tipe 1)
     db_token = db.query(tokenModel.Token).filter(
@@ -763,6 +849,12 @@ def set_initial_password(db: Session, password_data: schema.SetInitialPassword):
     try:
         db.commit()
         db.refresh(user)
+        
+        auditLogController.create_security_log(
+            db=db, nid_user=user.nid, action="ACCOUNT_ACTIVATION_SUCCESS", 
+            request=request, details="Initial password set"
+        )
+        db.commit()   
     except Exception as commit_error:
         db.rollback()
         print(f"Error activating user {user.vemail}: {commit_error}")
@@ -774,7 +866,7 @@ def set_initial_password(db: Session, password_data: schema.SetInitialPassword):
 
     return user
 
-def activate_registered_user(db: Session, token: str):
+def activate_registered_user(db: Session, token: str, request: Request):
     """
     Mengaktifkan user yang mendaftar via publik.
     Hanya memvalidasi token dan mengubah status dari 2 (Pending) ke 1 (Active).
@@ -833,6 +925,11 @@ def activate_registered_user(db: Session, token: str):
     try:
         db.commit()
         db.refresh(user)
+        auditLogController.create_security_log(
+            db=db, nid_user=user.nid, action="ACCOUNT_ACTIVATION_SUCCESS", 
+            request=request, details="Public registration verified"
+        )
+        db.commit()
     except Exception as commit_error:
         db.rollback()
         print(f"Error activating registered user {user.vemail}: {commit_error}")
@@ -841,7 +938,7 @@ def activate_registered_user(db: Session, token: str):
     print(f"✅ User {user.vemail} (ID: {user.nid}) has been successfully activated from public registration.")
     return user
 
-def verify_and_update_email(db: Session, token: str):
+def verify_and_update_email(db: Session, token: str, request: Request):
     # Logika fungsi ini tidak berubah
     # Cari token verifikasi email (tipe 4)
     db_token = db.query(tokenModel.Token).filter(
@@ -896,6 +993,11 @@ def verify_and_update_email(db: Session, token: str):
     try:
         db.commit()
         db.refresh(user_to_update)
+        auditLogController.create_security_log(
+            db=db, nid_user=user_to_update.nid, action="EMAIL_CHANGE_VERIFIED", 
+            request=request, details=f"Email successfully changed to {new_email}"
+        )
+        db.commit()
         print(f"✅ Email for user {user_to_update.vcode} successfully updated to {user_to_update.vemail}.")
         return user_to_update
     except IntegrityError as e: # Jaga-jaga kalo ada constraint lain
@@ -953,6 +1055,10 @@ def schedule_token_expiry(sched, db_factory, user_id: int, token_id: int, task_t
                     user.vmodified_by = "system-scheduler-expire"
                     user.dsort_at = now_wib()
                     token.nstatus = 0 # Nonaktifkan token
+                    auditLogController.create_security_log(
+                        db=db, nid_user=user.nid, action="ACCOUNT_EXPIRED_BY_SCHEDULER", 
+                        request=None, details=f"Activation token {token_id} expired."
+                    )
                     db.commit()
                     sys.stdout.write(f"[SCHEDULER EXPIRE] User activation for {user.vemail} (ID: {user_id}) has expired via job {job_id}.\n")
                     sys.stdout.flush()
@@ -979,6 +1085,10 @@ def schedule_token_expiry(sched, db_factory, user_id: int, token_id: int, task_t
             elif task_type == 'email_change':
                 # Cukup nonaktifkan token verifikasi email
                 token.nstatus = 0
+                auditLogController.create_security_log(
+                    db=db, nid_user=token.nid_user, action="EMAIL_CHANGE_TOKEN_EXPIRED",
+                    request=None, details=f"Email change token {token_id} expired."
+                )
                 db.commit()
                 sys.stdout.write(f"[SCHEDULER EXPIRE] Email change token (ID: {token_id}) for UserID={user_id} has expired via job {job_id}.\n")
                 sys.stdout.flush()
@@ -986,6 +1096,10 @@ def schedule_token_expiry(sched, db_factory, user_id: int, token_id: int, task_t
             elif task_type == 'password_reset':
                 # Cukup nonaktifkan token reset password
                 token.nstatus = 0
+                auditLogController.create_security_log(
+                    db=db, nid_user=token.nid_user, action="PASSWORD_RESET_TOKEN_EXPIRED",
+                    request=None, details=f"Password reset token {token_id} expired."
+                )
                 db.commit()
                 sys.stdout.write(f"[SCHEDULER EXPIRE] Password reset token (ID: {token_id}) for UserID={user_id} has expired via job {job_id}.\n")
                 sys.stdout.flush()
@@ -1239,7 +1353,7 @@ def get_password_hash(password: str) -> str:
     # Hash password yg udah di-pepper
     return pwd_context.hash(password_with_pepper)
 
-async def request_password_reset(db: Session, email: str, app=None, db_factory=None):
+async def request_password_reset(db: Session, email: str,request: Request, app=None, db_factory=None):
     """
     Memproses permintaan reset password.
     Akan selalu return sukses (secara diam-diam) 
@@ -1274,6 +1388,11 @@ async def request_password_reset(db: Session, email: str, app=None, db_factory=N
         try:
             db.commit()
             db.refresh(db_token)
+            auditLogController.create_security_log(
+                db=db, nid_user=user.nid, action="PASSWORD_RESET_REQUEST", 
+                request=request
+            )
+            db.commit()
         except Exception as commit_error:
             db.rollback()
             print(f"Error committing password reset token for {user.vemail}: {commit_error}")
@@ -1307,6 +1426,11 @@ async def request_password_reset(db: Session, email: str, app=None, db_factory=N
     else:
         # User gak ketemu atau gak aktif
         print(f"Password reset request for '{email}' (Not Found or Inactive). Silently succeeding.")
+        auditLogController.create_security_log(
+            db=db, nid_user=None, action="PASSWORD_RESET_REQUEST_FAILED", 
+            request=request, details=f"Attempted email: {email}, reason: user not found/inactive"
+        )
+        db.commit()
     
     # Selalu kembalikan pesan generik
     return {"message": "Jika email Anda terdaftar, instruksi reset password akan dikirim."}
@@ -1363,7 +1487,7 @@ def verify_reset_token(db: Session, token: str):
     return {"valid": True, "reason": "Token aktif dan valid."}
 
 
-def reset_password(db: Session, password_data: schema.ResetPassword):
+def reset_password(db: Session, password_data: schema.ResetPassword, request: Request):
     """
     Mengatur password baru menggunakan token reset (Tipe 3).
     Mirip set_initial_password tapi untuk ntoken_type=3 dan user nstatus=1.
@@ -1412,6 +1536,11 @@ def reset_password(db: Session, password_data: schema.ResetPassword):
     try:
         db.commit()
         db.refresh(user)
+        auditLogController.create_security_log(
+            db=db, nid_user=user.nid, action="PASSWORD_RESET_SUCCESS", 
+            request=request
+        )
+        db.commit()
     except Exception as commit_error:
         db.rollback()
         print(f"Error resetting password for {user.vemail}: {commit_error}")
