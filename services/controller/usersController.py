@@ -20,7 +20,7 @@ from jose import JWTError, jwt # type: ignore
 from ..models import usersModel as models
 from ..models import tokenModel
 from ..schemas import usersSchema as schema
-from utils.email_service import send_activation_email, send_email_change_verification_email
+from utils.email_service import send_activation_email, send_email_change_verification_email, send_password_reset_email
 # Import util refresh token
 from utils.token_refresh import refresh_access_cookie, RefreshConfig
 from ..database import SessionLocal
@@ -982,6 +982,13 @@ def schedule_token_expiry(sched, db_factory, user_id: int, token_id: int, task_t
                 db.commit()
                 sys.stdout.write(f"[SCHEDULER EXPIRE] Email change token (ID: {token_id}) for UserID={user_id} has expired via job {job_id}.\n")
                 sys.stdout.flush()
+            
+            elif task_type == 'password_reset':
+                # Cukup nonaktifkan token reset password
+                token.nstatus = 0
+                db.commit()
+                sys.stdout.write(f"[SCHEDULER EXPIRE] Password reset token (ID: {token_id}) for UserID={user_id} has expired via job {job_id}.\n")
+                sys.stdout.flush()
 
             # Tambahin task type lain kalo perlu
 
@@ -1231,3 +1238,184 @@ def get_password_hash(password: str) -> str:
     password_with_pepper = password + PASSWORD_PEPPER
     # Hash password yg udah di-pepper
     return pwd_context.hash(password_with_pepper)
+
+async def request_password_reset(db: Session, email: str, app=None, db_factory=None):
+    """
+    Memproses permintaan reset password.
+    Akan selalu return sukses (secara diam-diam) 
+    untuk mencegah email enumeration.
+    """
+    user = get_user_by_email(db, email=email)
+
+    # Security: Jangan kasih tau kalo email gak ada atau gak aktif
+    # Cukup proses kalo user-nya valid (status 1 = Aktif)
+    if user and user.nstatus == 1:
+        
+        # Buat token reset (Tipe 3)
+        reset_token_str = secrets.token_urlsafe(32)
+        expires_at = now_wib() + timedelta(hours=1) # Reset token berlaku 1 jam
+
+        # Nonaktifkan token reset (Tipe 3) lama yg mungkin masih aktif
+        db.query(tokenModel.Token).filter(
+            tokenModel.Token.nid_user == user.nid,
+            tokenModel.Token.ntoken_type == 3, # Tipe 3 = Password Reset
+            tokenModel.Token.nstatus == 1
+        ).update({"nstatus": 0})
+
+        db_token = tokenModel.Token(
+            nid_user=user.nid,
+            ntoken_type=3, # Tipe 3 = Password Reset
+            vcode=reset_token_str,
+            dexpires_at=expires_at,
+            nstatus=1 # Aktif
+        )
+        db.add(db_token)
+        
+        try:
+            db.commit()
+            db.refresh(db_token)
+        except Exception as commit_error:
+            db.rollback()
+            print(f"Error committing password reset token for {user.vemail}: {commit_error}")
+            # Gagal di sini, tapi tetep return sukses ke user
+            return {"message": "Permintaan reset password telah diproses."}
+
+        # Kirim email
+        try:
+            await send_password_reset_email(
+                recipient_email=user.vemail,
+                user_name=user.vname,
+                reset_token=reset_token_str,
+            )
+        except Exception as e:
+            print(f"ERROR: Reset token for {user.vemail} created, BUT failed to send email. Error: {e}")
+            # Gagal kirim email, tapi user nggak perlu tau
+
+        # Jadwalkan expiry token (1 jam = 3600 detik)
+        if app and hasattr(app.state, "scheduler") and db_factory:
+            schedule_token_expiry(
+                sched=app.state.scheduler,
+                db_factory=db_factory,
+                user_id=user.nid,
+                token_id=db_token.nid,
+                task_type='password_reset', # Task type baru
+                delay_seconds=3600 
+            )
+        
+        print(f"🔑 Password reset initiated for {user.vemail}. Token expires in 1 hour.")
+
+    else:
+        # User gak ketemu atau gak aktif
+        print(f"Password reset request for '{email}' (Not Found or Inactive). Silently succeeding.")
+    
+    # Selalu kembalikan pesan generik
+    return {"message": "Jika email Anda terdaftar, instruksi reset password akan dikirim."}
+
+
+def verify_reset_token(db: Session, token: str):
+    """
+    Memvalidasi token reset password (Tipe 3) untuk UI.
+    Mirip verify_activation_token tapi untuk ntoken_type=3 dan nstatus=1 (Aktif).
+    """
+    db_token = (
+        db.query(tokenModel.Token)
+        .filter(
+            tokenModel.Token.vcode == token,
+            tokenModel.Token.ntoken_type == 3 # Tipe 3 = Password Reset
+        )
+        .first()
+    )
+
+    if not db_token:
+        return {"valid": False, "reason": "Token tidak valid atau tidak ditemukan."}
+    if db_token.nstatus == 0:
+        return {"valid": False, "reason": "Tautan ini sudah digunakan."}
+
+    # Cek expired
+    expires_at_aware = to_wib(db_token.dexpires_at)
+    if expires_at_aware < now_wib():
+        if db_token.nstatus == 1:
+            db_token.nstatus = 0 # Nonaktifkan token
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+        return {"valid": False, "reason": "Tautan ini sudah kedaluwarsa."}
+
+    # Cek user terkait
+    user = db.query(models.User).filter(models.User.nid == db_token.nid_user).first()
+    if not user:
+        db_token.nstatus = 0 
+        db.commit()
+        return {"valid": False, "reason": "Pengguna terkait tidak ditemukan."}
+
+    # Cek status user, harus Aktif (1)
+    if user.nstatus != 1:
+        if db_token.nstatus == 1:
+            db_token.nstatus = 0
+            db.commit()
+        
+        status_map = {0: "Tidak Aktif", 2: "Pending", 3: "Kedaluwarsa"}
+        reason = status_map.get(user.nstatus, f"Status {user.nstatus}")
+        return {"valid": False, "reason": f"Akun pengguna saat ini {reason}."}
+
+    # Kalo lolos semua cek di atas
+    return {"valid": True, "reason": "Token aktif dan valid."}
+
+
+def reset_password(db: Session, password_data: schema.ResetPassword):
+    """
+    Mengatur password baru menggunakan token reset (Tipe 3).
+    Mirip set_initial_password tapi untuk ntoken_type=3 dan user nstatus=1.
+    """
+    # Cari token reset (tipe 3)
+    db_token = db.query(tokenModel.Token).filter(
+        tokenModel.Token.vcode == password_data.token,
+        tokenModel.Token.ntoken_type == 3 # Pastikan tipe reset password
+    ).first()
+
+    if not db_token:
+        raise ValueError("Token tidak valid atau tidak ditemukan.")
+    if db_token.nstatus == 0:
+        raise ValueError("Tautan reset password ini sudah pernah digunakan.")
+
+    # Cek expired
+    expires_at_aware = to_wib(db_token.dexpires_at)
+    if expires_at_aware < now_wib():
+        if db_token.nstatus == 1:
+            db_token.nstatus = 0
+            db.commit()
+        raise ValueError("Tautan reset password sudah kedaluwarsa.")
+
+    # Cari user terkait
+    user = db.query(models.User).filter(models.User.nid == db_token.nid_user).first()
+    if not user:
+        db_token.nstatus = 0 
+        db.commit()
+        raise ValueError("Pengguna yang terkait dengan token ini tidak ditemukan.")
+
+    # Pastikan user-nya Aktif (status 1)
+    if user.nstatus != 1:
+        db_token.nstatus = 0 
+        db.commit()
+        status_map = {0: "Tidak Aktif", 2: "Pending", 3: "Kedaluwarsa"}
+        current_status = status_map.get(user.nstatus, f"Status {user.nstatus}")
+        raise ValueError(f"Tidak dapat mereset password karena status akun adalah '{current_status}'.")
+
+    # Set password baru dan nonaktifkan token
+    user.vpassword = get_password_hash(password_data.password)
+    user.vmodified_by = "system-password-reset"
+    user.dsort_at = now_wib()
+    
+    db_token.nstatus = 0 # Nonaktifkan token setelah dipakai
+
+    try:
+        db.commit()
+        db.refresh(user)
+    except Exception as commit_error:
+        db.rollback()
+        print(f"Error resetting password for {user.vemail}: {commit_error}")
+        raise ValueError("Gagal menyimpan password baru. Silakan coba lagi.")
+
+    print(f"✅ Password for user {user.vemail} (ID: {user.nid}) has been successfully reset.")
+    return user

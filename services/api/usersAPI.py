@@ -5,7 +5,7 @@ from typing import List, Optional, Annotated
 from datetime import timedelta, datetime
 from ..controller import userAccessController 
 from ..schemas import usersSchema as schema
-from ..schemas.usersSchema import UserRegister, ActivationToken
+from ..schemas.usersSchema import UserRegister, ActivationToken,  RequestPasswordReset, ResetPassword
 from ..controller import usersController
 from ..models import usersModel as models
 from ..database import SessionLocal # Import SessionLocal untuk db_factory
@@ -562,3 +562,54 @@ def activate_newly_registered_user(
     except Exception as e:
          print(f"[API /activate-account] Unexpected error: {e}")
          raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengaktifkan akun.")
+
+@router.post("/request-password-reset", status_code=status.HTTP_200_OK)
+async def request_password_reset_endpoint(
+    request_data: RequestPasswordReset, 
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Endpoint publik untuk minta kirim email reset password."""
+    print(f"[API /request-password-reset] Request received for email: {request_data.email}")
+    try:
+        response_message = await usersController.request_password_reset(
+            db=db, 
+            email=request_data.email, 
+            app=request.app, 
+            db_factory=SessionLocal
+        )
+        return response_message
+    except Exception as e:
+        print(f"[API /request-password-reset] Unexpected error: {e}")
+        # Tetap return sukses palsu biar aman
+        return {"message": "Jika email Anda terdaftar, instruksi reset password akan dikirim."}
+
+@router.get("/validate-reset-token/{token}")
+def validate_reset_token_endpoint(token: str, db: Session = Depends(get_db)):
+    """Endpoint publik untuk cek validitas token reset password (buat UI)."""
+    print(f"[API /validate-reset-token/] Request received for token: {token[:5]}...")
+    result = usersController.verify_reset_token(db=db, token=token)
+    if not result["valid"]:
+        print(f"[API /validate-reset-token/] Token invalid: {result['reason']}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["reason"])
+    print(f"[API /validate-reset-token/] Token valid.")
+    return result
+
+@router.post("/reset-password", response_model=schema.User)
+def reset_user_password(password_data: ResetPassword, db: Session = Depends(get_db)):
+    """Endpoint publik untuk user set password baru pakai token reset."""
+    print(f"[API /reset-password] Request received for token: {password_data.token[:5]}...")
+    try:
+        updated_user = usersController.reset_password(db=db, password_data=password_data)
+        print(f"[API /reset-password] Password reset successfully for user: {updated_user.vemail}")
+        return updated_user
+    except ValueError as e:
+        error_detail = str(e)
+        print(f"[API /reset-password] Failed: {error_detail}")
+        status_code = status.HTTP_400_BAD_REQUEST
+        if "tidak valid" in error_detail or "kedaluwarsa" in error_detail or "digunakan" in error_detail or "tidak ditemukan" in error_detail:
+            status_code = status.HTTP_404_NOT_FOUND
+        raise HTTPException(status_code=status_code, detail=error_detail)
+    except Exception as e:
+         print(f"[API /reset-password] Unexpected error: {e}")
+         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengatur password baru.")

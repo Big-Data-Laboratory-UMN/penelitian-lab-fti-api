@@ -87,3 +87,10 @@ class RefreshTokenRequest(BaseModel):
 class NewAccessTokenResponse(BaseModel):
     access_token: str
     token_type: str
+
+class RequestPasswordReset(BaseModel):
+    email: EmailStr
+
+class ResetPassword(BaseModel):
+    token: str
+    password: str
