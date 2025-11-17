@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks # type: ignore
 from sqlalchemy.orm import Session
 from typing import Optional
 
 from ..schemas import userAccessSchema as schema, usersSchema
+from ..schemas.userAccessSchema import UserAccess
+from ..controller import auditLogController
 from ..controller import userAccessController, usersController
 from ..database import SessionLocal
 
@@ -70,32 +72,127 @@ def get_user_access_by_id(user_access_id: int, db: Session = Depends(get_db), cu
     return user_access
 
 @router.post("/", response_model=schema.UserAccess, status_code=status.HTTP_201_CREATED)
-def create_new_user_access(user_access: schema.UserAccessCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def create_new_user_access(
+    user_access: schema.UserAccessCreate, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
     try:
         user_access.vcreated_by = current_user.vcode
-        return userAccessController.create_user_access(db=db, user_access=user_access)
+        
+        # Panggil controller asli
+        new_user_access = userAccessController.create_user_access(db=db, user_access=user_access)
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="CREATE",
+            target_model="UserAccess",
+            target_identifier=new_user_access.vcode,
+            jbefore=None,
+            jafter=user_access.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
+        return new_user_access
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{user_access_vcode}", response_model=schema.UserAccess)
-def update_existing_user_access(user_access_vcode: str, user_access: schema.UserAccessUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def update_existing_user_access(
+    user_access_vcode: str, 
+    user_access: schema.UserAccessUpdate, 
+    request: Request,                 
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
+    
+    # --- AMBIL DATA SEBELUM UPDATE ---
+    db_user_access_before = userAccessController.get_user_access_by_code(db, vcode=user_access_vcode) #
+    if not db_user_access_before:
+        raise HTTPException(status_code=404, detail="User access assignment not found")
+    
+    # Pake mode='json' buat fix error datetime
+    jbefore = UserAccess.model_validate(db_user_access_before).model_dump(mode='json')
+    # ----------------------------------
+
     try:
         user_access.vmodified_by = current_user.vcode
+        
+        # Panggil controller asli
         db_user_access = userAccessController.update_user_access(db=db, user_access_vcode=user_access_vcode, user_access=user_access)
-        if db_user_access is None:
+        
+        if db_user_access is None: #
             raise HTTPException(status_code=404, detail="User access assignment not found")
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="UPDATE",
+            target_model="UserAccess",
+            target_identifier=db_user_access.vcode,
+            jbefore=jbefore,
+            jafter=user_access.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
         return db_user_access
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{user_access_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_user_access(user_access_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def soft_delete_user_access(
+    user_access_vcode: str, 
+    request: Request,                 
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
-    user_access = userAccessController.delete_user_access(db=db, user_access_vcode=user_access_vcode, current_user=current_user.vcode)
-    if user_access is None:
+    
+    # --- AMBIL DATA SEBELUM DELETE ---
+    db_user_access_before = userAccessController.get_user_access_by_code(db, vcode=user_access_vcode) #
+    if not db_user_access_before:
         raise HTTPException(status_code=404, detail="User access assignment not found")
+        
+    jbefore = UserAccess.model_validate(db_user_access_before).model_dump(mode='json')
+    # ---------------------------------
+    
+    # Panggil controller asli
+    deleted_user_access = userAccessController.delete_user_access(db=db, user_access_vcode=user_access_vcode, current_user=current_user.vcode)
+    
+    if deleted_user_access is None: #
+        raise HTTPException(status_code=404, detail="User access assignment not found")
+
+    # --- BUAT 'jafter' DARI HASIL UPDATE ---
+    jafter = UserAccess.model_validate(deleted_user_access).model_dump(mode='json')
+    # --------------------------------------
+
+    # --- LOG ACTIVITY (BACKGROUND) ---
+    background_tasks.add_task(
+        auditLogController.create_activity_log_task,
+        nid_user=current_user.nid,
+        action="DELETE",
+        target_model="UserAccess",
+        target_identifier=user_access_vcode,
+        jbefore=jbefore, # Data sebelum (nstatus=1)
+        jafter=jafter,   # Data sesudah (nstatus=0)
+        ip=request.client.host,
+        user_agent=request.headers.get("user-agent")
+    )
+    # ---------------------------------
+    
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.UserAccessDropdownResponse)

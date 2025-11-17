@@ -284,10 +284,16 @@ async def update_existing_user(
     print(f"[API PUT /users/{user_vcode}] Request received from user: {current_user.vemail}")
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
     print(f"[API PUT /users/{user_vcode}] User roles: {user_roles}")
+    
+    # --- AMBIL INFO USER TARGET (UDAH ADA) ---
     target_user = usersController.get_user_by_code(db, user_code=user_vcode)
-
     if not target_user:
          raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna yang akan diupdate tidak ditemukan.")
+    
+    # Simpen info lama buat logging
+    target_user_nid = target_user.nid
+    target_user_email = target_user.vemail
+    # ----------------------------------------
 
     is_updating_self = current_user.vcode == user_vcode
     allowed_admin_roles = {"SA"} # Sesuaikan
@@ -308,8 +314,34 @@ async def update_existing_user(
         if db_user is None:
             print(f"[API PUT /users/{user_vcode}] Update failed: User not found.")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
+        # --- [INI TAMBAHANNYA] ---
+        # (Kita log ini walaupun user-nya update data diri sendiri, 
+        #  tapi detailnya bisa dibedain dari message log-nya)
+        log_details = ""
+        if is_updating_self:
+            log_details = f"User {current_user.vemail} (NID: {current_user.nid}) memperbarui datanya sendiri."
+        else:
+            log_details = f"Admin {current_user.vemail} memperbarui data akun: {target_user_email} (NID: {target_user_nid})"
+
+        try:
+            auditLogController.create_security_log(
+                db=db, 
+                nid_user=current_user.nid, # NID user yg melakukan aksi
+                action="ACCOUNT_UPDATED", 
+                request=request, 
+                details=log_details
+            )
+            db.commit() # Commit log-nya
+            print(f"[AUDIT LOG] Security log committed for ACCOUNT_UPDATED.")
+        except Exception as log_err:
+            db.rollback()
+            print(f"[AUDIT LOG ERROR] Gagal menyimpan security log update: {log_err}")
+        # ---------------------------
+
         print(f"[API PUT /users/{user_vcode}] User updated successfully by {current_user.vemail}.")
         return db_user
+        
     except ValueError as e:
         print(f"[API PUT /users/{user_vcode}] Update failed: {str(e)}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -321,7 +353,8 @@ async def update_existing_user(
 @router.delete("/{user_vcode}", status_code=status.HTTP_204_NO_CONTENT)
 def soft_delete_user(
     user_vcode: str,
-    response: Response, # Inject response
+    response: Response, 
+    request: Request,
     db: Session = Depends(get_db),
     current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
@@ -345,11 +378,40 @@ def soft_delete_user(
              detail="Tidak dapat menghapus akun sendiri."
          )
 
+    # --- 2. AMBIL INFO USER TARGET SEBELUM DELETE ---
+    target_user = usersController.get_user_by_code(db, user_code=user_vcode)
+    if not target_user:
+        print(f"[API DELETE /users/{user_vcode}] Delete failed: User not found (pre-check).")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna tidak ditemukan.")
+    
+    # Simpen data user target buat logging
+    target_user_nid = target_user.nid 
+    target_user_email = target_user.vemail
+    # ------------------------------------------------
+
+    # Panggil controller buat soft delete
     deleted_user = usersController.delete_user(db=db, user_vcode=user_vcode, current_user=current_user.vcode)
 
     if deleted_user is None or deleted_user.nstatus != 0:
         print(f"[API DELETE /users/{user_vcode}] Delete failed: User not found or internal error during delete.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna tidak ditemukan atau gagal dihapus.")
+    
+    # --- 3. TAMBAHIN SECURITY LOG ---
+    try:
+        auditLogController.create_security_log(
+            db=db, 
+            nid_user=current_user.nid, # NID Admin yg nge-delete
+            action="ACCOUNT_DEACTIVATED", # Aksi yang lebih spesifik
+            request=request, 
+            details=f"Admin {current_user.vemail} menonaktifkan akun: {target_user_email} (NID: {target_user_nid})"
+        )
+        db.commit() # <-- 4. COMMIT LOG-NYA
+        print(f"[AUDIT LOG] Security log committed for ACCOUNT_DEACTIVATED.")
+    except Exception as log_err:
+        db.rollback()
+        # Sebaiknya jangan gagalin seluruh proses kalo log gagal, tapi catet errornya
+        print(f"[AUDIT LOG ERROR] Gagal menyimpan security log: {log_err}")
+    # --------------------------------
 
     print(f"[API DELETE /users/{user_vcode}] User soft deleted successfully by {current_user.vemail}.")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

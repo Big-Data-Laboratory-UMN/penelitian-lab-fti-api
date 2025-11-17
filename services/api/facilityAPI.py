@@ -2,13 +2,15 @@
 
 from fastapi import (
     APIRouter, Depends, HTTPException, status,
-    UploadFile, File, Form, Response, Request # Import Request
+    UploadFile, File, Form, Response, Request, BackgroundTasks
 )
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from ..schemas import facilitySchema as schema, usersSchema
+from ..schemas.facilitySchema import Facility
 from ..controller import facilityController, usersController, userAccessController
+from ..controller import auditLogController
 from ..database import SessionLocal
 
 from datetime import datetime
@@ -73,6 +75,7 @@ def get_facility_by_id(
 @router.post("/", response_model=schema.Facility, status_code=status.HTTP_201_CREATED)
 async def create_new_facility_with_file(
     request: Request, 
+    background_tasks: BackgroundTasks, 
     vcode: str = Form(...),
     vname: str = Form(...),
     vdesc: str = Form(...),
@@ -82,15 +85,33 @@ async def create_new_facility_with_file(
 ):
     check_forbidden_roles(db, current_user)
     try:
+        # Data ini yang kita jadiin 'jafter'
         facility_data = schema.FacilityCreate(
             vcode=vcode, vname=vname, vdesc=vdesc,
             vcreated_by=current_user.vcode
         )
-        # Pass request ke controller
-        return await facilityController.create_facility_with_file(
+        
+        # Panggil controller asli
+        new_facility = await facilityController.create_facility_with_file(
             db=db, facility_data=facility_data, file=file,
-            current_user=current_user, request=request # Pass request
+            current_user=current_user, request=request 
         )
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="CREATE",
+            target_model="Facility",
+            target_identifier=new_facility.vcode,
+            jbefore=None, 
+            jafter=facility_data.model_dump(), # Pake data dari form
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+
+        return new_facility
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -101,6 +122,7 @@ async def create_new_facility_with_file(
 @router.put("/{facility_vcode}", response_model=schema.Facility)
 async def update_existing_facility_with_file(
     request: Request,
+    background_tasks: BackgroundTasks, 
     facility_vcode: str,
     vcode: str = Form(...),
     vname: str = Form(...),
@@ -112,18 +134,46 @@ async def update_existing_facility_with_file(
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
+    
+    # --- AMBIL DATA SEBELUM UPDATE ---
+    db_facility_before = facilityController.get_facility_by_code(db, facility_vcode) #
+    if not db_facility_before:
+        raise HTTPException(status_code=404, detail="Fasilitas tidak ditemukan")
+    
+    # Pake mode='json' buat fix error datetime
+    jbefore = Facility.model_validate(db_facility_before).model_dump(mode='json')
+    # ----------------------------------
+
     try:
+        # Data ini yang kita jadiin 'jafter'
         facility_data = schema.FacilityUpdate(
             vcode=vcode, vname=vname, vdesc=vdesc, nstatus=nstatus,
             nid_file=nid_file, vmodified_by=current_user.vcode
         )
-        # Pass request ke controller
+        
+        # Panggil controller asli
         db_facility = await facilityController.update_facility_with_file(
             db=db, facility_vcode=facility_vcode, facility_data=facility_data, file=file,
-            current_user=current_user, request=request # Pass request
+            current_user=current_user, request=request 
         )
+        
         if db_facility is None:
             raise HTTPException(status_code=404, detail="Fasilitas tidak ditemukan")
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="UPDATE",
+            target_model="Facility",
+            target_identifier=db_facility.vcode,
+            jbefore=jbefore,
+            jafter=facility_data.model_dump(), # Pake data dari form
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
         return db_facility
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -133,16 +183,48 @@ async def update_existing_facility_with_file(
 
 @router.delete("/{facility_vcode}", status_code=status.HTTP_204_NO_CONTENT)
 def soft_delete_facility(
-    facility_vcode: str, db: Session = Depends(get_db),
+    facility_vcode: str, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
+    
+    # --- AMBIL DATA SEBELUM DELETE ---
+    db_facility_before = facilityController.get_facility_by_code(db, facility_vcode) #
+    if not db_facility_before:
+        raise HTTPException(status_code=404, detail="Fasilitas tidak ditemukan")
+    
+    jbefore = Facility.model_validate(db_facility_before).model_dump(mode='json')
+    # ---------------------------------
+    
     try:
+        # Panggil controller asli
         deleted_facility = facilityController.delete_facility(
             db=db, facility_vcode=facility_vcode, modified_by=current_user.vcode
         )
         if deleted_facility is None:
             raise HTTPException(status_code=404, detail="Fasilitas tidak ditemukan")
+
+        # --- BUAT 'jafter' DARI HASIL UPDATE ---
+        jafter = Facility.model_validate(deleted_facility).model_dump(mode='json')
+        # --------------------------------------
+
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="DELETE",
+            target_model="Facility",
+            target_identifier=facility_vcode,
+            jbefore=jbefore, # nstatus=1
+            jafter=jafter,   # nstatus=0
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
