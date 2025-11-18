@@ -1,9 +1,15 @@
-from sqlalchemy import or_, UniqueConstraint, and_
+from sqlalchemy import or_, update
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import labContentModel as models
 from ..schemas import labContentSchema as schema
+
+import pytz
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+
+def now_wib() -> datetime:
+    return datetime.now(JAKARTA_TZ)
 
 def get_lab_contents(
     db: Session,
@@ -47,3 +53,71 @@ def get_lab_contents(
     data = query.offset(skip).limit(limit).all()
 
     return {"data": data, "total": total}
+
+
+def get_lab_content_by_vcode(db: Session, vcode: str):
+    return db.query(models.LabContent).filter(
+        models.LabContent.vcode == vcode,
+        models.LabContent.nstatus == 1
+    ).first()
+
+
+def get_lab_content_by_id(db: Session, nid: int):
+    return db.query(models.LabContent).filter(models.LabContent.nid == nid).first()
+
+
+def create_lab_content(db: Session, lc_data: schema.LabContentCreate):
+    try:
+        db_lc = models.LabContent(**lc_data.model_dump())
+        db_lc.dcreated_at = now_wib()
+        db.add(db_lc)
+        db.commit()
+        db.refresh(db_lc)
+        return db_lc
+    except Exception as e:
+        db.rollback()
+        raise ValueError(f"Gagal membuat lab content. {e}")
+
+
+def update_lab_content(db: Session, vcode: str, lc_data: schema.LabContentUpdate):
+    db_lc = get_lab_content_by_vcode(db, vcode)
+    if not db_lc:
+        return None
+
+    try:
+        update_data = lc_data.model_dump(exclude_unset=True)
+        update_data["dmodified_at"] = now_wib()
+
+        stmt = update(models.LabContent).where(
+            models.LabContent.vcode == vcode,
+            models.LabContent.nstatus == 1
+        ).values(**update_data)
+        db.execute(stmt)
+        db.commit()
+        db.refresh(db_lc)
+        return db_lc
+    except Exception as e:
+        db.rollback()
+        raise ValueError(f"Gagal mengupdate lab content. {e}")
+
+
+def delete_lab_content(db: Session, vcode: str, modified_by: str):
+    db_lc = get_lab_content_by_vcode(db, vcode)
+    if not db_lc:
+        return None
+
+    try:
+        stmt = update(models.LabContent).where(
+            models.LabContent.vcode == vcode,
+            models.LabContent.nstatus == 1
+        ).values(
+            nstatus=0,
+            vmodified_by=modified_by,
+            dmodified_at=now_wib()
+        )
+        db.execute(stmt)
+        db.commit()
+        return db_lc
+    except Exception as e:
+        db.rollback()
+        raise ValueError(f"Gagal menghapus (soft delete) lab content. {e}")

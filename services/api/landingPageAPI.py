@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status, Response # type: ignore
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -18,7 +18,7 @@ def to_wib(dt: datetime) -> datetime:
 
 router = APIRouter(
     prefix="/home_data",
-    tags=["Lab Contents"]
+    tags=["Landing Page"]
 )
 
 def get_db():
@@ -28,6 +28,13 @@ def get_db():
     finally:
         db.close()
 
+def check_forbidden_roles(db: Session, current_user: usersSchema.User):
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    if "PIC" in user_roles or "VSTR" in user_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak punya hak akses untuk operasi ini."
+        )
 
 @router.get("/", response_model=schema.LandingPageResponse)
 def read_all_home_data(
@@ -43,3 +50,48 @@ def read_all_home_data(
         vcode=mappingCode
     )
     return home_contents_data
+
+
+@router.post("/", response_model=schema.LandingPage, status_code=status.HTTP_201_CREATED)
+def create_landing_page(
+    payload: schema.LandingPageCreate,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    check_forbidden_roles(db, current_user)
+    try:
+        payload.vcreated_by = current_user.vcode
+        return landingPageController.create_landing_page(db=db, lp_data=payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/{vcode}", response_model=schema.LandingPage)
+def update_landing_page(
+    vcode: str,
+    payload: schema.LandingPageUpdate,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    check_forbidden_roles(db, current_user)
+    try:
+        payload.vmodified_by = current_user.vcode
+        db_lp = landingPageController.update_landing_page(db=db, vcode=vcode, lp_data=payload)
+        if db_lp is None:
+            raise HTTPException(status_code=404, detail="Landing page tidak ditemukan")
+        return db_lp
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/{vcode}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_landing_page(
+    vcode: str,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    check_forbidden_roles(db, current_user)
+    deleted = landingPageController.delete_landing_page(db=db, vcode=vcode, modified_by=current_user.vcode)
+    if deleted is None:
+        raise HTTPException(status_code=404, detail="Landing page tidak ditemukan atau gagal dihapus")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

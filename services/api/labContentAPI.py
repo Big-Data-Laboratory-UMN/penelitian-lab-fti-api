@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status, Response # type: ignore
 from sqlalchemy.orm import Session
 from typing import Optional
 
@@ -28,6 +28,13 @@ def get_db():
     finally:
         db.close()
 
+def check_forbidden_roles(db: Session, current_user: usersSchema.User):
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    if "PIC" in user_roles or "VSTR" in user_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak punya hak akses untuk operasi ini."
+        )
 
 @router.get("/", response_model=schema.LabContentResponse)
 def read_all_lab_contents(
@@ -44,3 +51,48 @@ def read_all_lab_contents(
         vcode=mappingCode
     )
     return lab_contents_data
+
+
+@router.post("/", response_model=schema.LabContent, status_code=status.HTTP_201_CREATED)
+def create_lab_content(
+    payload: schema.LabContentCreate,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    check_forbidden_roles(db, current_user)
+    try:
+        payload.vcreated_by = current_user.vcode
+        return labContentController.create_lab_content(db=db, lc_data=payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/{vcode}", response_model=schema.LabContent)
+def update_lab_content(
+    vcode: str,
+    payload: schema.LabContentUpdate,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    check_forbidden_roles(db, current_user)
+    try:
+        payload.vmodified_by = current_user.vcode
+        db_lc = labContentController.update_lab_content(db=db, vcode=vcode, lc_data=payload)
+        if db_lc is None:
+            raise HTTPException(status_code=404, detail="Lab content tidak ditemukan")
+        return db_lc
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/{vcode}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_lab_content(
+    vcode: str,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    check_forbidden_roles(db, current_user)
+    deleted = labContentController.delete_lab_content(db=db, vcode=vcode, modified_by=current_user.vcode)
+    if deleted is None:
+        raise HTTPException(status_code=404, detail="Lab content tidak ditemukan atau gagal dihapus")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

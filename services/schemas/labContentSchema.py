@@ -3,10 +3,31 @@ from pydantic import BaseModel
 from datetime import datetime
 
 
+class LabContentCreate(BaseModel):
+    vcode: str
+    nid_lab: int
+    vtitle: str
+    vslug_url: str
+    vsummary: str
+    vcontent: str
+    vcreated_by: str = "system"
+
+
+class LabContentUpdate(BaseModel):
+    vcode: str
+    nid_lab: int
+    vtitle: str
+    vslug_url: str
+    vsummary: str
+    vcontent: str
+    nstatus: int
+    vmodified_by: str = "system"
+
 
 class LabContent(BaseModel):
     nid: int
     vcode: str
+    nid_lab: int
     vtitle: str
     vslug_url: str
     vsummary: str
