@@ -42,10 +42,23 @@ def get_home_content_file(
     if home_images_contents_data is None:
         response.status_code = status.HTTP_404_NOT_FOUND
         return schema.LandingPageImageResponse(
-            value=None,
+            value=schema.LandingPageImage(
+                nid=0,
+                vcode="",
+                nid_file=0,
+                nid_landing_page_section=0,
+                vlandingpage_image_to_landingpage_vcode="",
+                vcreated_by=None,
+                dcreated_at=None,
+                vmodified_by=None,
+                dmodified_at=None,
+                nstatus=0
+            ),
             found=False
         )
+    print("GOT")
+    print(home_images_contents_data)
     return schema.LandingPageImageResponse(
-        value=home_images_contents_data,
+        value=schema.LandingPageImage(**home_images_contents_data.__dict__),
         found=True
     )

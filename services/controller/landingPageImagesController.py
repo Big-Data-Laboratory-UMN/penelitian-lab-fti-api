@@ -5,13 +5,13 @@ def get_landing_page_image(
     db: Session,
     landing_page_vcode: str | None = None,
     nstatus: int | None = None,
-):
-    query = db.query(models.LandingPageImages)
+) -> models.LandingPageImage | None:
+    query = db.query(models.LandingPageImage)
 
     if landing_page_vcode is not None:
-        query = query.filter(models.LandingPageImages.vlandingpage_image_to_landingpage_vcode == landing_page_vcode)
+        query = query.filter(models.LandingPageImage.vlandingpage_image_to_landingpage_vcode == landing_page_vcode)
     if nstatus is not None:
-        query = query.filter(models.LandingPageImages.nstatus == nstatus)
+        query = query.filter(models.LandingPageImage.nstatus == nstatus)
 
     if not query.first():
         return None

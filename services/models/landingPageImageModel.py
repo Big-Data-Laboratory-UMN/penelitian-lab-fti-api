@@ -8,7 +8,7 @@ import pytz
 def now_wib():
     return datetime.now(pytz.timezone("Asia/Jakarta"))
 
-class LandingPageImages(Base):
+class LandingPageImage(Base):
     __tablename__ = "tbls_landing_page_image"
 
     nid = Column(Integer, primary_key=True, autoincrement=True)

@@ -15,5 +15,5 @@ class LandingPageImage(BaseModel):
     nstatus: int
 
 class LandingPageImageResponse(BaseModel):
-    value: LandingPageImage | None
+    value: LandingPageImage
     found: bool
