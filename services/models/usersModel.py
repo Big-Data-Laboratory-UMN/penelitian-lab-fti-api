@@ -40,6 +40,8 @@ class User(Base):
     
     bookings = relationship("Booking", back_populates="user")
     
+    user_access_rel = relationship("UserAccess", back_populates="user")
+    
     __table_args__ = (
         CheckConstraint(
             nstatus.in_([0, 1, 2, 3]), 

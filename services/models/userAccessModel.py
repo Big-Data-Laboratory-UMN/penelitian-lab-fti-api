@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint, 
     UniqueConstraint
 )
+from sqlalchemy.orm import relationship
 from datetime import datetime
 from sqlalchemy.sql import func
 from ..database import Base
@@ -38,6 +39,9 @@ class UserAccess(Base):
     vmodified_by = Column(String(100), nullable=True)
     
     dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib) 
+
+    user = relationship("User", back_populates="user_access_rel")
+    role = relationship("Role", back_populates="user_access_rel")
 
     __table_args__ = (
         CheckConstraint('nstatus IN (0, 1)', name='chk_user_access_nstatus_values'),

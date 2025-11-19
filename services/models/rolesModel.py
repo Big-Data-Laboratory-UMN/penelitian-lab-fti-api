@@ -3,6 +3,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Float, 
 from sqlalchemy.sql import func 
 from ..database import Base
 import pytz
+from sqlalchemy.orm import relationship
 
 
 def now_wib():
@@ -25,6 +26,7 @@ class Role(Base):
     vmodified_by = Column(String(100), nullable=True)
     
     dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib)
+    user_access_rel = relationship("UserAccess", back_populates="role")
 
     __table_args__ = (
         CheckConstraint('nstatus IN (0, 1)', name='chk_roles_nstatus_values'),
