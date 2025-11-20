@@ -72,11 +72,12 @@ def read_security_logs_api(
     event: Optional[str] = Query(None),
     startDate: Optional[date] = Query(None),
     endDate: Optional[date] = Query(None),
+    actorId: Optional[int] = Query(None, alias="actorId"),
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_sa_access(db, current_user)
-    return auditLogController.get_security_logs(db=db, page=page, limit=limit, search=search, event=event, start_date=startDate, end_date=endDate)
+    return auditLogController.get_security_logs(db=db, page=page, limit=limit, search=search, event=event, start_date=startDate, end_date=endDate, actor_id=actorId)
 
 # --- DETAIL SECURITY LOG (NEW) ---
 @router.get("/security/{log_id}", response_model=auditLogSchema.SecurityLogResponse)

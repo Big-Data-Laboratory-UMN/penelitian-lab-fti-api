@@ -68,6 +68,7 @@ class AuditStats(BaseModel):
     
     # User Insight
     unique_actors: int
+    distinct_ips: int
     
     # Info tambahan (Opsional, buat ngasih tau FE ini data rentang kapan)
     period_start: Optional[datetime] = None

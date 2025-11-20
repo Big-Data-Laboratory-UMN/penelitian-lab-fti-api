@@ -139,16 +139,17 @@ def get_activity_logs(db: Session, page: int = 1, limit: int = 10, search: Optio
 
     return {"data": results, "total": total, "page": page, "limit": limit}
 
-def get_security_logs(db: Session, page: int = 1, limit: int = 10, search: Optional[str] = None, event: Optional[str] = None, start_date: Optional[date] = None, end_date: Optional[date] = None):
+def get_security_logs(db: Session, page: int = 1, limit: int = 10, search: Optional[str] = None, event: Optional[str] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, actor_id: Optional[int] = None):
     query = db.query(securityLogModel.SecurityLog).outerjoin(usersModel.User, securityLogModel.SecurityLog.nid_user == usersModel.User.nid)
 
     if search:
         search_fmt = f"%{search}%"
         query = query.filter(or_(usersModel.User.vname.ilike(search_fmt), usersModel.User.vemail.ilike(search_fmt), securityLogModel.SecurityLog.vip_address.ilike(search_fmt), securityLogModel.SecurityLog.vaction.ilike(search_fmt)))
 
-    if event: query = query.filter(securityLogModel.SecurityLog.vaction == event)
+    if event: query = query.filter(securityLogModel.SecurityLog.vaction.ilike(f"%{event}%"))
     if start_date: query = query.filter(func.date(securityLogModel.SecurityLog.dtimestamp) >= start_date)
     if end_date: query = query.filter(func.date(securityLogModel.SecurityLog.dtimestamp) <= end_date)
+    if actor_id: query = query.filter(securityLogModel.SecurityLog.nid_user == actor_id)
 
     total = query.count()
     logs = query.order_by(desc(securityLogModel.SecurityLog.dtimestamp)).offset((page - 1) * limit).limit(limit).all()
@@ -172,6 +173,10 @@ def get_security_logs(db: Session, page: int = 1, limit: int = 10, search: Optio
 def _get_stats_by_date_range(db: Session, start_date: date, end_date: date):
     act_query = db.query(activityLogModel.ActivityLog).filter(func.date(activityLogModel.ActivityLog.dtimestamp) >= start_date, func.date(activityLogModel.ActivityLog.dtimestamp) <= end_date)
     sec_query = db.query(securityLogModel.SecurityLog).filter(func.date(securityLogModel.SecurityLog.dtimestamp) >= start_date, func.date(securityLogModel.SecurityLog.dtimestamp) <= end_date)
+    # Hitung distinct IP untuk sinyal sumber akses unik
+    distinct_ips = sec_query.with_entities(securityLogModel.SecurityLog.vip_address).distinct().count()
+    # Unique actors lebih relevan dari security log (aktor keamanan), bukan activity log
+    unique_security_actors = sec_query.with_entities(securityLogModel.SecurityLog.nid_user).distinct().count()
     return {
         "total_activities": act_query.count(),
         "creates": act_query.filter(activityLogModel.ActivityLog.vaction == 'CREATE').count(),
@@ -180,7 +185,8 @@ def _get_stats_by_date_range(db: Session, start_date: date, end_date: date):
         "total_security_events": sec_query.count(),
         "login_success": sec_query.filter(securityLogModel.SecurityLog.vaction == 'LOGIN_SUCCESS').count(),
         "failed_logins": sec_query.filter(or_(securityLogModel.SecurityLog.vaction == 'LOGIN_FAILED', securityLogModel.SecurityLog.vaction.ilike('%FAIL%'))).count(),
-        "unique_actors": act_query.with_entities(activityLogModel.ActivityLog.nid_user).distinct().count(),
+        "unique_actors": unique_security_actors,
+        "distinct_ips": distinct_ips,
         "period_start": start_date, "period_end": end_date
     }
 
