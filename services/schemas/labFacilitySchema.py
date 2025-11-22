@@ -19,7 +19,9 @@ class FacilityLab(BaseModel):
     nid: int
     vcode: str
     nid_lab: int
+    vcode_lab: str
     nid_facility: int
+    vcode_facility: str
     nstatus: int
     dcreated_at: Optional[datetime] = None
     vcreated_by: Optional[str] = None

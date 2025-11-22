@@ -29,24 +29,24 @@ def get_db():
         db.close()
 
 
-@router.get("/{nid_lab_content}", response_model=schema.LabContentFilesResponse)
-def get_lab_content_file(
-    nid_lab_content: int, 
+@router.get("/{vcode_lab_content}", response_model=schema.LabContentFilesResponse)
+def get_lab_content_files(
+    vcode_lab_content: str, 
     response: Response,
     db: Session = Depends(get_db),
     
 ):
-    lab_contents_data = labContentFilesController.get_lab_content_file(
-        db=db, nid_lab_content=nid_lab_content
+    lab_contents_data = labContentFilesController.get_lab_content_files(
+        db=db, vcode_lab_content=vcode_lab_content
     )
     if len(lab_contents_data) == 0:
         response.status_code = status.HTTP_404_NOT_FOUND
         return schema.LabContentFilesResponse(
-            value=None,
-            found=False
+            values=[],
+            total=0
         )
     
     return schema.LabContentFilesResponse(
-        value=lab_contents_data[0],
-        found=True
+        values=[schema.LabContentFile(**item.__dict__) for item in lab_contents_data],
+        total=len(lab_contents_data)
     )

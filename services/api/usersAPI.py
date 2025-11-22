@@ -388,11 +388,11 @@ def read_all_users_for_dropdown(
 
     allowed_roles = {"SA", "ADM"} # Sesuaikan
     if not any(role in allowed_roles for role in user_roles):
-         print(f"[API /all-for-dropdown/] Forbidden: User {current_user.vemail} cannot access dropdown list.")
-         raise HTTPException(
-             status_code=status.HTTP_403_FORBIDDEN,
-             detail="Anda tidak punya hak akses untuk data ini."
-         )
+        print(f"[API /all-for-dropdown/] Forbidden: User {current_user.vemail} cannot access dropdown list.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak punya hak akses untuk data ini."
+        )
 
     users_data = usersController.get_all_users_for_dropdown(db=db)
     print(f"[API /all-for-dropdown/] Returning {len(users_data['data'])} active users for dropdown.")
@@ -422,6 +422,23 @@ def read_all_users_for_dropdown(
     return users_data
 
 # --- Endpoint Publik (tidak butuh autentikasi) ---
+
+@router.get("/anonymous/{user_vcode}", response_model=schema.UserSafeResponse)
+def read_user_anonymous(
+    user_vcode: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Mengambil data user secara anonymous (hanya nama dan email).
+    """
+    print(f"[API /anonymous/{user_vcode}] Request received.")
+    user = usersController.get_user_by_code(db, user_code=user_vcode)
+    if not user:
+        print(f"[API /anonymous/{user_vcode}] User not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna tidak ditemukan")
+    
+    print(f"[API /anonymous/{user_vcode}] User found: {user.vemail}")
+    return user
 
 @router.post("/set-initial-password", response_model=schema.User)
 def set_user_initial_password(password_data: schema.SetInitialPassword, db: Session = Depends(get_db)):

@@ -5,10 +5,10 @@ from datetime import datetime
 from ..models import labContentFilesModel as models
 from ..schemas import labContentFilesSchema as schema
 
-def get_lab_content_file(
+def get_lab_content_files(
         db: Session,
-        nid_lab_content: int,
+        vcode_lab_content: str,
 ):
     return db.query(models.LabContentFiles).filter(
-        models.LabContentFiles.nid_lab_content == nid_lab_content
+        models.LabContentFiles.vcode_lab_content == vcode_lab_content
     ).all()
