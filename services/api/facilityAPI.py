@@ -249,3 +249,21 @@ def read_all_facilities_for_dropdown(
     # check_forbidden_roles(db, current_user)
     facilities_data = facilityController.get_all_active_facilities_for_dropdown(db=db)
     return facilities_data
+
+@router.get("/anonymous/{facility_vcode}", response_model=schema.Facility)
+def get_facility_by_code_anonymous(
+    facility_vcode: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get facility by vcode anonymously.
+    Only returns facility if it is linked to a lab.
+    """
+    try:
+        facility = facilityController.get_facility_by_code_anonymous_restricted(db=db, facility_vcode=facility_vcode)
+        if facility is None:
+            raise HTTPException(status_code=404, detail="Fasilitas tidak ditemukan atau tidak dapat diakses")
+        return facility
+    except Exception as e:
+        print(f"Error getting facility anonymously: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")

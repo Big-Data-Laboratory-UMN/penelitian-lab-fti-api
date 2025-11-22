@@ -171,3 +171,31 @@ def get_facilities_by_labs_for_dropdown(db: Session, lab_id: int):
 
     except Exception as e:
         raise ValueError(str(e))
+
+def get_facilities_by_lab_code_anonymous(db: Session, lab_vcode: str):
+    """
+    Get all facilities associated with a lab by lab's vcode.
+    Anonymous access allowed.
+    Returns list of (LabFacility, Facility Name, Facility Desc, Facility File ID).
+    """
+    lab = db.query(labModel.Lab).filter(labModel.Lab.vcode == lab_vcode).first()
+    if not lab:
+        return None
+
+    results = (
+        db.query(
+            models.LabFacility, 
+            facilityModel.Facility.vname,
+            facilityModel.Facility.vdesc,
+            facilityModel.Facility.nid_file
+        )
+        .join(facilityModel.Facility, models.LabFacility.nid_facility == facilityModel.Facility.nid)
+        .filter(
+            models.LabFacility.nid_lab == lab.nid,
+            models.LabFacility.nstatus == 1,
+            facilityModel.Facility.nstatus == 1
+        )
+        .order_by(facilityModel.Facility.vname)
+        .all()
+    )
+    return results

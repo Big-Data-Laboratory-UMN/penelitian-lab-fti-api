@@ -294,3 +294,19 @@ def get_file_raw(file_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Physical file not found")
 
     return FileResponse(path=str(file_path.resolve()), media_type=db_file.vtype, filename=db_file.vname)
+
+@router.get("/vcode/{file_vcode}/raw")
+def get_file_raw_by_vcode(file_vcode: str, db: Session = Depends(get_db)):
+    """
+    Serve file content for frontend preview by vcode.
+    GET /files/vcode/{file_vcode}/raw
+    """
+    db_file = fileController.get_file_by_vcode(db=db, file_vcode=file_vcode)
+    if not db_file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_path = Path(db_file.vpath)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Physical file not found")
+
+    return FileResponse(path=str(file_path.resolve()), media_type=db_file.vtype, filename=db_file.vname)

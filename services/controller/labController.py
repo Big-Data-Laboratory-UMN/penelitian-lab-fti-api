@@ -69,6 +69,7 @@ def update_lab(db: Session, lab_vcode: str, lab: schema.LabUpdate, current_user:
     db_lab.vcode = lab.vcode
     db_lab.vname = lab.vname
     db_lab.vdesc = lab.vdesc
+    db_lab.hero_image_vcode = lab.hero_image_vcode
     db_lab.ncapacity = lab.ncapacity
     db_lab.nstatus = lab.nstatus
     db_lab.vmodified_by = current_user.vcode

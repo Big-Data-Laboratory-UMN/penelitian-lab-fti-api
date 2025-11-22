@@ -58,6 +58,33 @@ def read_all_labs(
     )
     return labs_data
 
+@router.get("/public/all", response_model=schema.LabResponse)
+def read_all_labs_public(
+    skip: int = 0, 
+    limit: int = 10, 
+    search: Optional[str] = None, 
+    db: Session = Depends(get_db)
+):
+    """
+    Get all active labs for public view (no auth required).
+    Only returns active labs (nstatus=1).
+    """
+    labs_data = labController.get_labs(
+        db=db, skip=skip, limit=limit, search=search,
+        nstatus=1 # Force active only
+    )
+    return labs_data
+
+@router.get("/public/{lab_vcode}", response_model=schema.Lab)
+def get_lab_by_code_public(lab_vcode: str, db: Session = Depends(get_db)):
+    """
+    Get lab details by code for public view (no auth required).
+    """
+    lab = labController.get_lab_by_code(db=db, lab_code=lab_vcode)
+    if lab is None or lab.nstatus != 1:
+        raise HTTPException(status_code=404, detail="Lab not found or inactive")
+    return lab
+
 @router.get("/{lab_id}", response_model=schema.Lab)
 def get_lab_by_id(lab_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
