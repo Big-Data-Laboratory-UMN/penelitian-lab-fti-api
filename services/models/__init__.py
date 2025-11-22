@@ -12,3 +12,5 @@ from .labFacilityModel import LabFacility
 from .filesModel import Files
 from .bookingModel import Booking
 from .bookingFilesModel import BookingFile
+from .securityLogModel import SecurityLog
+from .activityLogModel import ActivityLog

@@ -36,14 +36,15 @@ async def send_activation_email(
     recipient_email: str,
     user_name: str, 
     activation_token: str,
-    frontend_url: str = BASE_URL_FRONTEND
+    frontend_url: str = BASE_URL_FRONTEND,
+    path: str = "/auth/set-initial-password/"
 ) -> dict:
     """
     Send activation email with robust error handling.
     Returns dict with status and message.
     """
     
-    activation_link = f"{frontend_url}/auth/set-initial-password/{activation_token}"
+    activation_link = f"{frontend_url}{path}{activation_token}"
     
     msg = MIMEMultipart('alternative')
     msg['Subject'] = 'Aktivasi Akun Anda'
@@ -104,7 +105,7 @@ Tim Support
                                           color: white; text-decoration: none; padding: 15px 40px; 
                                           border-radius: 50px; font-weight: bold; font-size: 16px;
                                           box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
-                                    Aktivasi Akun & Set Password
+                                    Aktivasi Akun Anda
                                 </a>
                             </div>
                             
@@ -694,3 +695,144 @@ async def send_documentation_reminder_email(
     except Exception as e:
         print(f"❌ [Doc Reminder] Error saat kirim email ke {recipient_email}: {e}")
         return False
+
+async def send_password_reset_email(
+    recipient_email: str,
+    user_name: str, 
+    reset_token: str,
+    frontend_url: str = BASE_URL_FRONTEND,
+    path: str = "/auth/forgot-password/" # Path ke halaman reset di frontend
+) -> dict:
+    """
+    Kirim email reset password.
+    """
+    
+    reset_link = f"{frontend_url}{path}{reset_token}"
+    
+    msg = MIMEMultipart('alternative')
+    msg['Subject'] = 'Instruksi Reset Password Akun Anda'
+    msg['From'] = MAIL_FROM
+    msg['To'] = recipient_email
+    
+    # Versi teks biasa
+    text_content = f"""
+Halo, {user_name}!
+
+Kami menerima permintaan untuk mereset password akun Anda.
+Jika Anda merasa tidak meminta ini, silakan abaikan email ini.
+
+Silakan klik link di bawah untuk mengatur password baru Anda:
+{reset_link}
+
+Link ini akan kedaluwarsa dalam 1 jam.
+
+Salam,
+Tim Support
+    """
+    
+    # Versi HTML
+    html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); padding: 40px 30px; border-radius: 8px 8px 0 0;">
+                            <h1 style="color: white; margin: 0; font-size: 28px; text-align: center;">
+                                Reset Password
+                            </h1>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            <h2 style="color: #333; margin-bottom: 10px;">Halo, {user_name}!</h2>
+                            <p style="color: #666; margin-bottom: 30px;">
+                                Kami menerima permintaan untuk mereset password Anda. Klik tombol di bawah untuk membuat password baru.
+                            </p>
+                            
+                            <div style="text-align: center; margin: 40px 0;">
+                                <a href="{reset_link}" 
+                                   style="display: inline-block; background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); 
+                                          color: white; text-decoration: none; padding: 15px 40px; 
+                                          border-radius: 50px; font-weight: bold; font-size: 16px;
+                                          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
+                                    Atur Password Baru
+                                </a>
+                            </div>
+                            
+                            <div style="background-color: #f9f9f9; padding: 15px; border-radius: 4px; margin: 30px 0;">
+                                <p style="color: #999; font-size: 12px; margin: 5px 0;">
+                                    Jika tombol tidak berfungsi, salin link berikut ke browser:
+                                </p>
+                                <p style="color: #667eea; font-size: 12px; word-break: break-all; margin: 5px 0;">
+                                    {reset_link}
+                                </p>
+                            </div>
+                            
+                            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+                            
+                            <p style="color: #999; font-size: 14px; margin-bottom: 10px;">
+                                <strong>Penting:</strong> Link ini akan kedaluwarsa dalam <strong>1 jam</strong>.
+                            </p>
+                            <p style="color: #999; font-size: 12px;">
+                                Jika Anda tidak meminta reset password, silakan abaikan email ini.
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <td style="background-color: #f9f9f9; padding: 20px 30px; border-radius: 0 0 8px 8px; text-align: center;">
+                            <p style="color: #999; font-size: 12px; margin: 0;">
+                                Email ini dikirim secara otomatis. Mohon tidak membalas email ini.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+    """
+    
+    msg.attach(MIMEText(text_content, 'plain'))
+    msg.attach(MIMEText(html_content, 'html'))
+    
+    # Logic kirim email (copy-paste dari fungsi lu yang lain)
+    if ASYNC_SMTP_AVAILABLE:
+        try:
+            await aiosmtplib.send(
+                msg,
+                hostname=MAIL_SERVER,
+                port=MAIL_PORT,
+                start_tls=MAIL_USE_TLS,
+                username=MAIL_USERNAME,
+                password=MAIL_PASSWORD,
+            )
+            print(f"✅ [ASYNC] Password reset email sent successfully to {recipient_email}")
+            return {"success": True, "message": "Email sent successfully", "method": "async"}
+        except Exception as e:
+            print(f"❌ [ASYNC] Failed to send password reset email: {str(e)}")
+            # Fallback ke sync
+            
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _send_email_sync, msg, recipient_email)
+        if result:
+            print(f"✅ [SYNC] Password reset email sent successfully to {recipient_email}")
+            return {"success": True, "message": "Email sent successfully", "method": "sync"}
+        else:
+            raise Exception("Failed to send email")
+            
+    except Exception as e:
+        error_msg = f"Failed to send password reset email: {str(e)}"
+        print(f"❌ [SYNC] {error_msg}")
+        raise Exception(error_msg)

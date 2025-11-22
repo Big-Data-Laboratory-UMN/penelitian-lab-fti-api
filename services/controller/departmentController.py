@@ -138,20 +138,27 @@ def delete_department(db: Session, department_vcode: str, current_user: usersSch
         db.commit()
         db.refresh(db_department)
     return db_department
-
-
-def get_all_active_departments_for_dropdown(db: Session):
-    departments = (
-        db.query(models.Department)
-        .order_by(models.Department.vname)
-        .all()
-    )
+    
+def get_all_active_departments_for_dropdown(db: Session, for_user: bool = False):
+    if for_user:
+        departments = (
+            db.query(models.Department)
+            .filter(models.Department.nstatus == 1, ~models.Department.vname.ilike('%fakultas%'))
+            .order_by(models.Department.vname)
+            .all()
+        )
+    else:
+        departments = (
+            db.query(models.Department)
+            .filter(models.Department.nstatus == 1)
+            .order_by(models.Department.vname)
+            .all()
+        )
     return {"data": departments}
 
 def get_all_departments_for_dropdown(db: Session):
     departments = (
         db.query(models.Department)
-        .filter(models.Department.nstatus == 1)
         .order_by(models.Department.vname)
         .all()
     )

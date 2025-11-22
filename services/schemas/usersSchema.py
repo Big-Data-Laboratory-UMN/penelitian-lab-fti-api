@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator, ValidationInfo
 from datetime import datetime
 
 class UserBase(BaseModel):
@@ -14,6 +14,18 @@ class UserCreateByAdmin(UserBase):
 
 class UserCreate(UserCreateByAdmin):
     vpassword: str
+
+class UserRegister(UserBase):
+    password: str
+    confirm_password: str
+    nid_department: int
+
+    @field_validator('confirm_password') 
+    @classmethod
+    def passwords_match(cls, v: str, info: ValidationInfo) -> str:
+        if 'password' in info.data and v != info.data['password']:
+            raise ValueError('Password dan Konfirmasi Password tidak cocok')
+        return v
 
 class UserUpdate(UserBase):
     nstatus: int
@@ -30,12 +42,15 @@ class User(UserBase):
     class Config:
         from_attributes = True
         
-class UserWithRoles(User): # Inherit dari User biar dapet field yg sama
+class UserWithRoles(User): 
     roles: List[str] = []
 
 class SetInitialPassword(BaseModel):
     token: str
     password: str
+    
+class ActivationToken(BaseModel):
+    token: str
 
 class UserResponse(BaseModel):
     data: List[User]
@@ -79,3 +94,10 @@ class RefreshTokenRequest(BaseModel):
 class NewAccessTokenResponse(BaseModel):
     access_token: str
     token_type: str
+
+class RequestPasswordReset(BaseModel):
+    email: EmailStr
+
+class ResetPassword(BaseModel):
+    token: str
+    password: str

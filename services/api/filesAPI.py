@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status, Response,Request, BackgroundTasks # type: ignore
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -6,6 +6,8 @@ from pathlib import Path
 
 # Import schema dan controller yang relevan
 from ..schemas import filesSchema as schema, usersSchema
+from ..schemas.filesSchema import File
+from ..controller import auditLogController
 from ..controller import fileController, usersController, userAccessController
 from ..database import SessionLocal
 
@@ -82,74 +84,182 @@ def get_file_by_id(
 # Endpoint Create biasanya tidak diexpose langsung, tapi dipanggil dari controller lain
 # Jika tetap mau ada endpoint create file mandiri:
 @router.post("/", response_model=schema.File, status_code=status.HTTP_201_CREATED)
-def create_new_file_metadata( # Nama fungsi diubah biar jelas ini hanya metadata
-    file_data: schema.FileCreate, # Hanya terima metadata via JSON
+def create_new_file_metadata( #
+    file_data: schema.FileCreate, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     """Endpoint untuk membuat metadata file (tanpa upload fisik). Upload fisik biasanya terintegrasi."""
     check_forbidden_roles(db, current_user)
     try:
-        file_data.vcreated_by = current_user.vcode # Set creator
-        return fileController.create_file(db=db, file_data=file_data)
+        file_data.vcreated_by = current_user.vcode 
+        
+        # Panggil controller asli
+        new_file = fileController.create_file(db=db, file_data=file_data) #
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="CREATE",
+            target_model="File",
+            target_identifier=new_file.vcode,
+            jbefore=None,
+            jafter=file_data.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
+        return new_file
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{file_vcode}", response_model=schema.File)
-def update_existing_file_metadata( # Nama fungsi diubah biar jelas ini hanya metadata
+def update_existing_file_metadata( 
     file_vcode: str,
     file_data: schema.FileUpdate,
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     """Endpoint untuk mengupdate metadata file."""
     check_forbidden_roles(db, current_user)
+    
+    # --- AMBIL DATA SEBELUM UPDATE ---
+    db_file_before = fileController.get_file_by_vcode(db, file_vcode=file_vcode) #
+    if not db_file_before:
+        raise HTTPException(status_code=404, detail="File tidak ditemukan")
+    
+    # Pake mode='json' buat fix error datetime
+    jbefore = File.model_validate(db_file_before).model_dump(mode='json')
+    # ----------------------------------
+
     try:
-        file_data.vmodified_by = current_user.vcode # Set modifier
-        db_file = fileController.update_file(db=db, file_vcode=file_vcode, file_data=file_data)
-        if db_file is None:
+        file_data.vmodified_by = current_user.vcode 
+        
+        # Panggil controller asli
+        db_file = fileController.update_file(db=db, file_vcode=file_vcode, file_data=file_data) #
+        
+        if db_file is None: #
             raise HTTPException(status_code=404, detail="File tidak ditemukan")
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="UPDATE",
+            target_model="File",
+            target_identifier=db_file.vcode,
+            jbefore=jbefore,
+            jafter=file_data.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
         return db_file
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{file_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_file_record( # Nama fungsi diubah biar jelas ini hanya record
+def soft_delete_file_record( 
     file_vcode: str,
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     """Endpoint untuk soft delete record metadata file."""
     check_forbidden_roles(db, current_user)
-    deleted_file = fileController.delete_file(db=db, file_vcode=file_vcode, modified_by=current_user.vcode)
-    if deleted_file is None:
+    
+    # --- AMBIL DATA SEBELUM DELETE ---
+    db_file_before = fileController.get_file_by_vcode(db, file_vcode=file_vcode) #
+    if not db_file_before:
+        raise HTTPException(status_code=404, detail="File tidak ditemukan")
+        
+    jbefore = File.model_validate(db_file_before).model_dump(mode='json')
+    # ---------------------------------
+    
+    # Panggil controller asli
+    deleted_file = fileController.delete_file(db=db, file_vcode=file_vcode, modified_by=current_user.vcode) #
+    
+    if deleted_file is None: #
          raise HTTPException(status_code=404, detail="File tidak ditemukan atau gagal dihapus")
-    # Jika perlu hapus fisik, bisa panggil controller di sini, tapi hati-hati
-    # fileController.delete_physical_file_by_nid(db, deleted_file.nid) # Contoh
-    return Response(status_code=status.HTTP_204_NO_CONTENT) # Return response kosong
+
+    # --- BUAT 'jafter' DARI HASIL UPDATE ---
+    jafter = File.model_validate(deleted_file).model_dump(mode='json')
+    # --------------------------------------
+
+    # --- LOG ACTIVITY (BACKGROUND) ---
+    background_tasks.add_task(
+        auditLogController.create_activity_log_task,
+        nid_user=current_user.nid,
+        action="DELETE",
+        target_model="File",
+        target_identifier=file_vcode,
+        jbefore=jbefore, # nstatus=1
+        jafter=jafter,   # nstatus=0
+        ip=request.client.host,
+        user_agent=request.headers.get("user-agent")
+    )
+    # ---------------------------------
+    
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 # Endpoint Hapus Permanen (Opsional & Hati-hati!)
 @router.delete("/permanent/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
-def permanently_delete_file(
+def permanently_delete_file( #
     file_id: int,
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     """Endpoint HAPUS PERMANEN record file DAN file fisiknya (Hati-hati!)."""
-    # Terapkan role check yang SANGAT KETAT di sini, misal hanya Super Admin
+    # (Role check SA Only lu udah bener di sini)
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    if "SA" not in user_roles: # Contoh: Hanya SA
+    if "SA" not in user_roles: 
          raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Hanya Super Admin yang boleh menghapus permanen.")
 
+    # --- AMBIL DATA SEBELUM DELETE ---
+    # Pake get_file (bukan get_file_by_vcode) biar bisa dapet file yg udah nstatus=0
+    db_file_before = fileController.get_file(db=db, file_id=file_id) #
+    if not db_file_before:
+        raise HTTPException(status_code=404, detail="File tidak ditemukan untuk dihapus permanen.")
+        
+    jbefore = File.model_validate(db_file_before).model_dump(mode='json')
+    file_vcode_identifier = db_file_before.vcode # Simpen vcode buat log
+    # ---------------------------------
+
     try:
-        success = fileController.permanently_delete_file_record(db=db, file_id=file_id)
-        if not success:
+        # Panggil controller asli
+        success = fileController.permanently_delete_file_record(db=db, file_id=file_id) #
+        
+        if not success: #
              raise HTTPException(status_code=404, detail="File tidak ditemukan untuk dihapus permanen.")
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="DELETE_PERMANENT", # Aksi khusus
+            target_model="File",
+            target_identifier=file_vcode_identifier, # Pake vcode yg udah disimpen
+            jbefore=jbefore, # Data lengkap sebelum diapus
+            jafter=None,     # Hard delete gak ada 'after'
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except ValueError as e: # Tangkap error dari controller (misal permission error hapus fisik)
+    except ValueError as e: 
          raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-         # Log error internal
          print(f"Internal error during permanent delete file ID {file_id}: {e}")
          raise HTTPException(status_code=500, detail="Gagal menghapus file secara permanen.")
 

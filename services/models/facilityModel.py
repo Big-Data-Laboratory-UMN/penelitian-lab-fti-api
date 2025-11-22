@@ -30,6 +30,8 @@ class Facility(Base):
     vmodified_by = Column(String(100), nullable=True)
     
     dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib)
+    
+    lab_facilities = relationship("LabFacility", back_populates="facility")
 
     __table_args__ = (
         CheckConstraint('nstatus IN (0, 1)', name='chk_facilities_nstatus_values'),

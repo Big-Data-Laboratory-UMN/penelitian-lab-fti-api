@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status,Request, BackgroundTasks # type: ignore
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from ..schemas import rolesSchema as schema, usersSchema
+from ..schemas.rolesSchema import Role
+from ..controller import auditLogController
 from ..controller import rolesController, usersController, userAccessController
 from ..database import SessionLocal
 
@@ -67,40 +69,101 @@ def get_role_by_id(role_id: int, db: Session = Depends(get_db), current_user: us
 
 
 @router.post("/", response_model=schema.Role, status_code=status.HTTP_201_CREATED)
-def create_new_role(role: schema.RoleCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def create_new_role(role: schema.RoleCreate,request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Membuat role baru.
     """
     check_forbidden_roles(db, current_user)
     try:
-        return rolesController.create_role(db=db, role=role, current_user=current_user)
+        new_role = rolesController.create_role(db=db, role=role, current_user=current_user)
+        
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="CREATE",
+            target_model="Role",
+            target_identifier=new_role.vcode,
+            jbefore=None,
+            jafter=role.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        
+        return new_role
+        
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{role_vcode}", response_model=schema.Role)
-def update_existing_role(role_vcode: str, role: schema.RoleUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def update_existing_role(role_vcode: str, request: Request,background_tasks: BackgroundTasks, role: schema.RoleUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengupdate role berdasarkan VCODE.
     """
     check_forbidden_roles(db, current_user)
+    db_role_before = rolesController.get_role_by_code(db, role_code=role_vcode) #
+    if not db_role_before:
+        raise HTTPException(status_code=404, detail="Role not found")
+    jbefore = Role.model_validate(db_role_before).model_dump(mode='json')
     try:
-        db_role = rolesController.update_role(db=db, role_vcode=role_vcode, role=role, current_user=current_user)
-        if db_role is None:
-            raise HTTPException(status_code=404, detail="Role not found")
-        return db_role
+        updated_role = rolesController.update_role(db=db, role_vcode=role_vcode, role=role, current_user=current_user)
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="UPDATE",
+            target_model="Role",
+            target_identifier=updated_role.vcode,
+            jbefore=jbefore, # Data SEBELUM
+            jafter=role.model_dump(), # Data BARU (dari request body)
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        return updated_role
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{role_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_role(role_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def soft_delete_role(role_vcode: str,request: Request,background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Melakukan soft delete pada role berdasarkan VCODE.
     """
     check_forbidden_roles(db, current_user)
-    role = rolesController.delete_role(db=db, role_vcode=role_vcode, current_user=current_user)
-    if role is None:
+    
+    # --- AMBIL DATA SEBELUM DELETE ---
+    db_role_before = rolesController.get_role_by_code(db, role_code=role_vcode) #
+    if not db_role_before:
         raise HTTPException(status_code=404, detail="Role not found")
-    return
+        
+    # Konversi ke dict (Pake mode='json' buat fix datetime)
+    jbefore = Role.model_validate(db_role_before).model_dump(mode='json')
+    # ---------------------------------
+    
+    # Panggil controller asli lu. Ini akan me-return role yang SUDAH di-update
+    updated_role = rolesController.delete_role(db=db, role_vcode=role_vcode, current_user=current_user) #
+    
+    if updated_role is None:
+        # Ini harusnya gak kejadian kalo 'db_role_before' lolos, tapi buat jaga-jaga
+        raise HTTPException(status_code=404, detail="Role not found or failed to delete")
+
+    # --- BUAT 'jafter' DARI HASIL UPDATE ---
+    # Konversi 'updated_role' (yang udah nstatus=0) ke dict
+    jafter = Role.model_validate(updated_role).model_dump(mode='json')
+    # --------------------------------------
+
+    # --- LOG ACTIVITY (BACKGROUND) ---
+    background_tasks.add_task(
+        auditLogController.create_activity_log_task,
+        nid_user=current_user.nid,
+        action="DELETE", # Kita tetep pake action 'DELETE' biar jelas
+        target_model="Role",
+        target_identifier=role_vcode,
+        jbefore=jbefore, # Data sebelum (nstatus=1)
+        jafter=jafter, # <-- UBAH INI: Data sesudah (nstatus=0)
+        ip=request.client.host,
+        user_agent=request.headers.get("user-agent")
+    )
+    # ---------------------------------
+    
+    return # Return 204 No Content
 
 @router.get("/all-for-dropdown/", response_model=schema.RoleDropdownResponse)
 def read_all_roles_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):

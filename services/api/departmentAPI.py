@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status,Request, BackgroundTasks # type: ignore
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from ..schemas import departmentSchema as schema, usersSchema
+from ..schemas.departmentSchema import Department
 from ..controller import departmentController, userAccessController, usersController
+from ..controller import auditLogController
 from ..database import SessionLocal
 
 from datetime import datetime
@@ -64,30 +66,123 @@ def get_department_by_id(department_id: int, db: Session = Depends(get_db), curr
 
 
 @router.post("/", response_model=schema.Department, status_code=status.HTTP_201_CREATED)
-def create_new_department(department: schema.DepartmentCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def create_new_department(
+    department: schema.DepartmentCreate, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
     try:
-        return departmentController.create_department(db=db, department=department, current_user=current_user)
+        # Panggil controller asli
+        new_department = departmentController.create_department(db=db, department=department, current_user=current_user)
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="CREATE",
+            target_model="Department",
+            target_identifier=new_department.vcode,
+            jbefore=None,
+            jafter=department.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
+        return new_department
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{department_vcode}", response_model=schema.Department)
-def update_existing_department(department_vcode: str, department: schema.DepartmentUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def update_existing_department(
+    department_vcode: str, 
+    department: schema.DepartmentUpdate, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
+    
+    # --- AMBIL DATA SEBELUM UPDATE ---
+    db_department_before = departmentController.get_department_by_code(db, department_code=department_vcode) #
+    if not db_department_before:
+        raise HTTPException(status_code=404, detail="Department not found")
+    
+    # Pake mode='json' buat fix error datetime
+    jbefore = Department.model_validate(db_department_before).model_dump(mode='json')
+    # ----------------------------------
+
     try:
+        # Panggil controller asli
         db_department = departmentController.update_department(db=db, department_vcode=department_vcode, department=department, current_user=current_user)
-        if db_department is None:
+        
+        if db_department is None: #
             raise HTTPException(status_code=404, detail="Department not found")
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="UPDATE",
+            target_model="Department",
+            target_identifier=db_department.vcode,
+            jbefore=jbefore,
+            jafter=department.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
         return db_department
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{department_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_department(department_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def soft_delete_department(
+    department_vcode: str, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
-    department = departmentController.delete_department(db=db, department_vcode=department_vcode, current_user=current_user)
-    if department is None:
+    
+    # --- AMBIL DATA SEBELUM DELETE ---
+    db_department_before = departmentController.get_department_by_code(db, department_code=department_vcode) #
+    if not db_department_before:
         raise HTTPException(status_code=404, detail="Department not found")
+        
+    jbefore = Department.model_validate(db_department_before).model_dump(mode='json')
+    # ---------------------------------
+    
+    # Panggil controller asli
+    deleted_department = departmentController.delete_department(db=db, department_vcode=department_vcode, current_user=current_user)
+    
+    if deleted_department is None: #
+        raise HTTPException(status_code=404, detail="Department not found")
+
+    # --- BUAT 'jafter' DARI HASIL UPDATE ---
+    jafter = Department.model_validate(deleted_department).model_dump(mode='json')
+    # --------------------------------------
+
+    # --- LOG ACTIVITY (BACKGROUND) ---
+    background_tasks.add_task(
+        auditLogController.create_activity_log_task,
+        nid_user=current_user.nid,
+        action="DELETE",
+        target_model="Department",
+        target_identifier=department_vcode,
+        jbefore=jbefore, # Data sebelum (nstatus=1)
+        jafter=jafter,   # Data sesudah (nstatus=0)
+        ip=request.client.host,
+        user_agent=request.headers.get("user-agent")
+    )
+    # ---------------------------------
+    
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.DepartmentDropdownResponse)
@@ -101,4 +196,9 @@ def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_use
 def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     departments_data = departmentController.get_all_active_departments_for_dropdown(db=db)
+    return departments_data
+
+@router.get("/all-active-for-user-dropdown/", response_model=schema.DepartmentDropdownResponse)
+def read_all_departments_for_dropdown(db: Session = Depends(get_db)):
+    departments_data = departmentController.get_all_active_departments_for_dropdown(db=db, for_user=True)
     return departments_data

@@ -1,6 +1,8 @@
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
+from .labSchema import Lab as LabSchema
+from .facilitySchema import Facility as FacilitySchema
 
 class FacilityLabCreate(BaseModel):
     vcode: str
@@ -27,6 +29,9 @@ class FacilityLab(BaseModel):
     vcreated_by: Optional[str] = None
     dmodified_at: Optional[datetime] = None
     vmodified_by: Optional[str] = None
+    
+    lab: Optional[LabSchema] = None
+    facility: Optional[FacilitySchema] = None
 
     class Config:
         from_attributes = True 

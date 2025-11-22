@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks # type: ignore
 from sqlalchemy.orm import Session
 from typing import Optional
 
 from ..schemas import labFacilitySchema as schema, usersSchema
+from ..schemas.labFacilitySchema import FacilityLab
+from ..controller import auditLogController
 from ..controller import labFacilityController, userAccessController, usersController
 from ..database import SessionLocal
 
@@ -66,32 +68,127 @@ def get_facility_lab_by_id(facility_lab_id: int, db: Session = Depends(get_db), 
     return facility_lab
 
 @router.post("/", response_model=schema.FacilityLab, status_code=status.HTTP_201_CREATED)
-def create_new_facility_lab(facility_lab: schema.FacilityLabCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def create_new_facility_lab(
+    facility_lab: schema.FacilityLabCreate, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
     try:
         facility_lab.vcreated_by = current_user.vcode
-        return labFacilityController.create_facility_lab(db=db, facility_lab=facility_lab)
+        
+        # Panggil controller asli
+        new_facility_lab = labFacilityController.create_facility_lab(db=db, facility_lab=facility_lab)
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="CREATE",
+            target_model="LabFacility",
+            target_identifier=new_facility_lab.vcode,
+            jbefore=None,
+            jafter=facility_lab.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
+        return new_facility_lab
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{facility_lab_vcode}", response_model=schema.FacilityLab)
-def update_existing_facility_lab(facility_lab_vcode: str, facility_lab: schema.FacilityLabUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def update_existing_facility_lab(
+    facility_lab_vcode: str, 
+    facility_lab: schema.FacilityLabUpdate, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
+    
+    # --- AMBIL DATA SEBELUM UPDATE ---
+    db_facility_lab_before = labFacilityController.get_facility_lab_by_code(db, vcode=facility_lab_vcode) #
+    if not db_facility_lab_before:
+        raise HTTPException(status_code=404, detail="Facility Lab assignment not found")
+    
+    # Pake mode='json' buat fix error datetime
+    jbefore = FacilityLab.model_validate(db_facility_lab_before).model_dump(mode='json')
+    # ----------------------------------
+
     try:
         facility_lab.vmodified_by = current_user.vcode
+        
+        # Panggil controller asli
         db_facility_lab = labFacilityController.update_facility_lab(db=db, facility_lab_vcode=facility_lab_vcode, facility_lab=facility_lab)
-        if db_facility_lab is None:
+        
+        if db_facility_lab is None: #
             raise HTTPException(status_code=404, detail="Facility Lab assignment not found")
+        
+        # --- LOG ACTIVITY (BACKGROUND) ---
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="UPDATE",
+            target_model="LabFacility",
+            target_identifier=db_facility_lab.vcode,
+            jbefore=jbefore,
+            jafter=facility_lab.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        # ---------------------------------
+        
         return db_facility_lab
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{facility_lab_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_facility_lab(facility_lab_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def soft_delete_facility_lab(
+    facility_lab_vcode: str, 
+    request: Request,                 
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
-    facility_lab = labFacilityController.delete_facility_lab(db=db, facility_lab_vcode=facility_lab_vcode, current_user=current_user.vcode)
-    if facility_lab is None:
+    
+    # --- AMBIL DATA SEBELUM DELETE ---
+    db_facility_lab_before = labFacilityController.get_facility_lab_by_code(db, vcode=facility_lab_vcode) #
+    if not db_facility_lab_before:
         raise HTTPException(status_code=404, detail="Facility Lab assignment not found")
+        
+    jbefore = FacilityLab.model_validate(db_facility_lab_before).model_dump(mode='json')
+    # ---------------------------------
+    
+    # Panggil controller asli
+    deleted_facility_lab = labFacilityController.delete_facility_lab(db=db, facility_lab_vcode=facility_lab_vcode, current_user=current_user.vcode)
+    
+    if deleted_facility_lab is None: #
+        raise HTTPException(status_code=404, detail="Facility Lab assignment not found")
+
+    # --- BUAT 'jafter' DARI HASIL UPDATE ---
+    jafter = FacilityLab.model_validate(deleted_facility_lab).model_dump(mode='json')
+    # --------------------------------------
+
+    # --- LOG ACTIVITY (BACKGROUND) ---
+    background_tasks.add_task(
+        auditLogController.create_activity_log_task,
+        nid_user=current_user.nid,
+        action="DELETE",
+        target_model="LabFacility",
+        target_identifier=facility_lab_vcode,
+        jbefore=jbefore, # Data sebelum (nstatus=1)
+        jafter=jafter,   # Data sesudah (nstatus=0)
+        ip=request.client.host,
+        user_agent=request.headers.get("user-agent")
+    )
+    # ---------------------------------
+    
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.FacilityLabDropdownResponse)
@@ -106,7 +203,7 @@ def get_labs_by_department(
     db: Session = Depends(get_db), 
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user) 
+    # check_forbidden_roles(db, current_user) 
     
     try:
         facilities = labFacilityController.get_facilities_by_labs_for_dropdown(

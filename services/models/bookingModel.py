@@ -29,6 +29,8 @@ class Booking(Base):
     dmodified_at = Column(DateTime, onupdate=now_wib)
     vmodified_by = Column(String(100), nullable=True)
     
+    dcanceled_at = Column(DateTime, nullable=True)
+    
     dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib) 
     
     # Relationships

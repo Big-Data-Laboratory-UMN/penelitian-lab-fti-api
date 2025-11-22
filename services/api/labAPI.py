@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks # type: ignore
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from ..schemas import labSchema as schema, usersSchema
+from ..schemas.labSchema import Lab
+from ..controller import auditLogController
 from ..controller import labController, usersController, userAccessController
 from ..database import SessionLocal
 
@@ -66,42 +68,122 @@ def get_lab_by_id(lab_id: int, db: Session = Depends(get_db), current_user: user
 
 
 @router.post("/", response_model=schema.Lab, status_code=status.HTTP_201_CREATED)
-def create_new_lab(lab: schema.LabCreate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def create_new_lab(lab: schema.LabCreate, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     try:
-        lab.vcreated_by = current_user.vcode
-        return labController.create_lab(db=db, lab=lab, current_user=current_user)
+        lab.vcreated_by = current_user.vcode #
+        
+        new_lab = labController.create_lab(db=db, lab=lab, current_user=current_user) #
+        
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="CREATE",
+            target_model="Lab",
+            target_identifier=new_lab.vcode,
+            jbefore=None,
+            jafter=lab.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        
+        return new_lab
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.put("/{lab_vcode}", response_model=schema.Lab)
-def update_existing_lab(lab_vcode: str, lab: schema.LabUpdate, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def update_existing_lab(
+    lab_vcode: str, 
+    lab: schema.LabUpdate, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
+    
+    db_lab_before = labController.get_lab_by_code(db, lab_code=lab_vcode) #
+    if not db_lab_before:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    
+    jbefore = Lab.model_validate(db_lab_before).model_dump(mode='json')
+
     try:
-        lab.vmodified_by = current_user.vcode
-        db_lab = labController.update_lab(db=db, lab_vcode=lab_vcode, lab=lab, current_user=current_user)
-        if db_lab is None:
+        lab.vmodified_by = current_user.vcode #
+        
+        db_lab = labController.update_lab(db=db, lab_vcode=lab_vcode, lab=lab, current_user=current_user) #
+        
+        if db_lab is None: 
             raise HTTPException(status_code=404, detail="Lab not found")
+        
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="UPDATE",
+            target_model="Lab",
+            target_identifier=db_lab.vcode,
+            jbefore=jbefore,
+            jafter=lab.model_dump(),
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+        
         return db_lab
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/{lab_vcode}", status_code=status.HTTP_204_NO_CONTENT)
-def soft_delete_lab(lab_vcode: str, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def soft_delete_lab(
+    lab_vcode: str, 
+    request: Request,                 
+    background_tasks: BackgroundTasks, 
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
     check_forbidden_roles(db, current_user)
-    lab = labController.delete_lab(db=db, lab_vcode=lab_vcode, current_user=current_user)
-    if lab is None:
+    
+    # --- AMBIL DATA SEBELUM DELETE ---
+    db_lab_before = labController.get_lab_by_code(db, lab_code=lab_vcode) #
+    if not db_lab_before:
         raise HTTPException(status_code=404, detail="Lab not found")
+        
+    jbefore = Lab.model_validate(db_lab_before).model_dump(mode='json')
+    # ---------------------------------
+    
+    # Panggil controller asli
+    deleted_lab = labController.delete_lab(db=db, lab_vcode=lab_vcode, current_user=current_user) #
+    
+    if deleted_lab is None: #
+        raise HTTPException(status_code=404, detail="Lab not found")
+
+    # --- BUAT 'jafter' DARI HASIL UPDATE ---
+    jafter = Lab.model_validate(deleted_lab).model_dump(mode='json')
+    # --------------------------------------
+
+    # --- LOG ACTIVITY (BACKGROUND) ---
+    background_tasks.add_task(
+        auditLogController.create_activity_log_task,
+        nid_user=current_user.nid,
+        action="DELETE",
+        target_model="Lab",
+        target_identifier=lab_vcode,
+        jbefore=jbefore, # Data sebelum (nstatus=1)
+        jafter=jafter,   # Data sesudah (nstatus=0)
+        ip=request.client.host,
+        user_agent=request.headers.get("user-agent")
+    )
+    # ---------------------------------
+    
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.LabDropdownResponse)
 def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    check_forbidden_roles(db, current_user)
+    # check_forbidden_roles(db, current_user)
     labs_data = labController.get_all_labs_for_dropdown(db=db)
     return labs_data
 
 @router.get("/all-active-for-dropdown/", response_model=schema.LabDropdownResponse)
 def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    check_forbidden_roles(db, current_user)
+    # check_forbidden_roles(db, current_user)
     labs_data = labController.get_all_active_labs_for_dropdown(db=db)
     return labs_data

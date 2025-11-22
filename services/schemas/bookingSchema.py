@@ -32,6 +32,8 @@ class BookingSchema(BookingBase):
     dcreated_at: datetime
     vmodified_by: Optional[str] = None
     dmodified_at: Optional[datetime] = None
+    
+    dcanceled_at: Optional[datetime] = None
 
     user: Optional[UserSchema] = None 
     lab_facility: Optional[LabFacilitySchema] = None 
