@@ -54,6 +54,11 @@ def get_managed_lab_ids(db: Session, current_user: usersModel.User, user_roles: 
     if 'VSTR' in user_roles:
         return []
 
+    if 'SA' in user_roles:
+        # Superadmin sees ALL labs (active & inactive)
+        all_labs = db.query(labModel.Lab.nid).all()
+        return [lab.nid for lab in all_labs]
+
     user_access_records = db.query(UserAccess.nid_lab).filter(
         UserAccess.nid_user == current_user.nid,
         UserAccess.nid_lab != None,
@@ -1273,6 +1278,27 @@ def get_pending_booking_count(db: Session, current_user: usersModel.User, user_r
     
     return {"count": count}
 
+def get_cancel_booking_count(db: Session, current_user: usersModel.User, user_roles: Set[str]):
+    """
+    Menghitung jumlah booking yang berstatus 'Cancelled' 
+    sesuai dengan scope lab yang dikelola user.
+    """
+    # Ambil ID lab yang dikelola user ini
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    
+    if not managed_lab_ids:
+        return {"count": 0} # Kalo gak ngelola apa-apa, count-nya 0
+    
+    # Query count yang di-scope
+    count = db.query(Booking.nid).join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).filter(
+        Booking.nstatus == 3, 
+        LabFacility.nid_lab.in_(managed_lab_ids) # Filter sesuai scope
+    ).count()
+    
+    return {"count": count}
+
 def get_waiting_doc_booking_count(db: Session, current_user: usersModel.User, user_roles: Set[str]):
     """
     Menghitung jumlah booking yang berstatus 'Waiting For Documentation' (4)
@@ -1350,6 +1376,141 @@ async def cancel_booking_by_owner(
 
     # Kembalikan data utuh
     return get_booking_by_id(db, db_booking.nid)
+
+from datetime import timedelta
+
+def calculate_date_ranges(filter_type: str):
+    now = now_wib()
+    
+    if filter_type == 'daily':
+        # 24 jam terakhir
+        start_current = now - timedelta(days=1)
+        end_current = now
+        # 24 jam sebelumnya
+        start_prev = start_current - timedelta(days=1)
+        end_prev = start_current
+        
+    elif filter_type == 'weekly':
+        # 7 hari terakhir
+        start_current = now - timedelta(days=7)
+        end_current = now
+        # 7 hari sebelumnya
+        start_prev = start_current - timedelta(days=7)
+        end_prev = start_current
+        
+    elif filter_type == 'monthly':
+        # 30 hari terakhir
+        start_current = now - timedelta(days=30)
+        end_current = now
+        # 30 hari sebelumnya
+        start_prev = start_current - timedelta(days=30)
+        end_prev = start_current
+
+    elif filter_type == 'yearly':
+        # 1 tahun terakhir (365 hari)
+        start_current = now - timedelta(days=365)
+        end_current = now
+        # 1 tahun sebelumnya
+        start_prev = start_current - timedelta(days=365)
+        end_prev = start_current
+
+    elif filter_type == 'all_time':
+        # All Time (Sejak tahun 2000)
+        start_current = datetime(2000, 1, 1, tzinfo=JAKARTA_TZ)
+        end_current = now
+        # Trend tidak relevan untuk All Time, set prev ke range kosong
+        start_prev = start_current
+        end_prev = start_current
+        
+    else: # Default monthly
+        start_current = now - timedelta(days=30)
+        end_current = now
+        start_prev = start_current - timedelta(days=30)
+        end_prev = start_current
+        
+    return start_current, end_current, start_prev, end_prev
+
+def get_dashboard_stats(
+    db: Session, 
+    current_user: usersModel.User, 
+    user_roles: Set[str],
+    filter_type: str = 'monthly'
+):
+    # 1. Scope Check
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    if not managed_lab_ids:
+        return {
+            "pending_count": 0,
+            "waiting_doc_count": 0,
+            "cancelled_count": 0,
+            "total_booking": {
+                "count": 0,
+                "trend_percentage": 0.0,
+                "trend_direction": "flat",
+                "previous_count": 0
+            }
+        }
+
+    # 2. Date Ranges
+    start_curr, end_curr, start_prev, end_prev = calculate_date_ranges(filter_type)
+
+    # 3. Base Query Builder
+    def count_bookings(status_list: List[int], start_dt, end_dt):
+        return db.query(Booking.nid).join(
+            LabFacility, Booking.nid_lab_facility == LabFacility.nid
+        ).filter(
+            Booking.nstatus.in_(status_list),
+            LabFacility.nid_lab.in_(managed_lab_ids),
+            Booking.dcreated_at >= start_dt,
+            Booking.dcreated_at <= end_dt
+        ).count()
+
+    # 4. Execute Queries
+    
+    # TOTAL REQUEST (All Statuses: 0, 1, 2, 3, 4, 5)
+    total_req_curr = count_bookings([0, 1, 2, 3, 4, 5], start_curr, end_curr)
+    total_req_prev = count_bookings([0, 1, 2, 3, 4, 5], start_prev, end_prev)
+
+    # Breakdown (Current Period)
+    pending = count_bookings([2], start_curr, end_curr)
+    waiting = count_bookings([4], start_curr, end_curr)
+    cancelled = count_bookings([3], start_curr, end_curr)
+    approved = count_bookings([1], start_curr, end_curr)
+    done = count_bookings([5], start_curr, end_curr)
+    rejected = count_bookings([0], start_curr, end_curr)
+
+    # 5. Calculate Trend for Total Request
+    if total_req_prev == 0:
+        if total_req_curr > 0:
+            trend_pct = 100.0
+            direction = "up"
+        else:
+            trend_pct = 0.0
+            direction = "flat"
+    else:
+        diff = total_req_curr - total_req_prev
+        trend_pct = (diff / total_req_prev) * 100.0
+        if diff > 0:
+            direction = "up"
+        elif diff < 0:
+            direction = "down"
+        else:
+            direction = "flat"
+
+    return {
+        "total_request": {
+            "count": total_req_curr,
+            "trend_percentage": round(abs(trend_pct), 1),
+            "trend_direction": direction,
+            "previous_count": total_req_prev
+        },
+        "pending_count": pending,
+        "waiting_doc_count": waiting,
+        "cancelled_count": cancelled,
+        "approved_count": approved,
+        "done_count": done,
+        "rejected_count": rejected
+    }
 
 def get_all_bookings_no_pagination(
     db: Session,

@@ -659,6 +659,20 @@ def trigger_single_documentation_reminder_api(
         background_tasks=background_tasks
     )
     
+@router.get("/stats/dashboard", response_model=bookingSchema.DashboardStatsResponse)
+def get_dashboard_stats_api(
+    filter: str = Query('monthly', regex="^(daily|weekly|monthly|yearly|all_time)$"),
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    user_roles = check_management_access(db, current_user)
+    return bookingController.get_dashboard_stats(
+        db=db,
+        current_user=current_user,
+        user_roles=user_roles,
+        filter_type=filter
+    )
+
 @router.get("/stats/pending-count", response_model=dict)
 def get_pending_count_api(
     db: Session = Depends(get_db),
@@ -684,6 +698,21 @@ def get_waiting_doc_count_api(
     
     # Panggil controller baru
     return bookingController.get_waiting_doc_booking_count(
+        db=db, 
+        current_user=current_user, 
+        user_roles=user_roles
+    )
+    
+@router.get("/stats/cancel-count", response_model=dict)
+def get_waiting_doc_count_api(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Cek akses manajemen (SA/ADM/PIC)
+    user_roles = check_management_access(db, current_user)
+    
+    # Panggil controller baru
+    return bookingController.get_cancel_booking_count(
         db=db, 
         current_user=current_user, 
         user_roles=user_roles

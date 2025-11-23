@@ -45,3 +45,19 @@ class BookingSchema(BookingBase):
 class BookingResponse(BaseModel):
     data: List[BookingSchema]
     total: int
+
+class TotalBookingStats(BaseModel):
+    count: int
+    trend_percentage: float
+    trend_direction: str
+    previous_count: Optional[int] = None
+
+class DashboardStatsResponse(BaseModel):
+    total_request: TotalBookingStats
+    
+    pending_count: int
+    approved_count: int
+    rejected_count: int
+    cancelled_count: int
+    done_count: int
+    waiting_doc_count: int
