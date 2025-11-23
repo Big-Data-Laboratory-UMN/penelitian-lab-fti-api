@@ -18,6 +18,8 @@ class Lab(Base):
     vname = Column(String(255), nullable=False)
     vdesc = Column(Text, nullable=False)
     
+    hero_image_vcode = Column(String(100), nullable=True)
+
     ncapacity = Column(Integer, nullable=False)
     
     nstatus = Column(Integer, nullable=False, default=1)

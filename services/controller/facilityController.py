@@ -315,6 +315,40 @@ def get_all_facilities_for_dropdown(db: Session):
     ]
     return {"data": data}
 
+def get_facility_by_code_anonymous_restricted(db: Session, facility_vcode: str):
+    """
+    Get facility by vcode anonymously, but ONLY if it is part of a lab (exists in LabFacility).
+    """
+    # Check if facility exists and is active
+    facility = db.query(models.Facility).filter(
+        models.Facility.vcode == facility_vcode,
+        models.Facility.nstatus == 1
+    ).first()
+
+    if not facility:
+        return None
+
+    # Check if facility is linked to any active lab facility record
+    is_linked = db.query(labFacilityModel.LabFacility).filter(
+        labFacilityModel.LabFacility.nid_facility == facility.nid,
+        labFacilityModel.LabFacility.nstatus == 1
+    ).first()
+
+    if not is_linked:
+        return None # Or raise specific error if needed, but returning None implies not found/not accessible
+
+    # If linked, return facility with file info (similar to get_facilities logic)
+    # We need to fetch file info manually or use relationship if lazy='joined' isn't enough or we want specific structure
+    # The model has `related_file_relationship` with lazy='joined', so `facility.related_file_relationship` should be available.
+    # However, the schema expects `related_file`. Let's map it.
+    
+    if facility.related_file_relationship:
+        facility.related_file = facility.related_file_relationship
+    else:
+        facility.related_file = None
+
+    return facility
+
 def get_scoped_facilities_for_dropdown(db: Session, current_user: usersSchema.User):
     """
     [SCOPED] Mengambil SEMUA Facility (Active/Inactive) sesuai Scope Admin.

@@ -21,7 +21,9 @@ class FacilityLab(BaseModel):
     nid: int
     vcode: str
     nid_lab: int
+    vcode_lab: str
     nid_facility: int
+    vcode_facility: str
     nstatus: int
     dcreated_at: Optional[datetime] = None
     vcreated_by: Optional[str] = None
@@ -41,9 +43,23 @@ class FacilityLabResponse(BaseModel):
 class FacilityLabDropdown(BaseModel):
     nid: int
     vcode: str 
+    vname: Optional[str] = None # Add vname for facility name
 
     class Config:
         from_attributes = True
 
 class FacilityLabDropdownResponse(BaseModel):
     data: List[FacilityLabDropdown]
+    total: Optional[int] = None # Add total count
+
+class FacilityLabAnonymous(BaseModel):
+    nid: int
+    vcode: str
+    vcode_facility: str
+    vname: str
+    vdesc: Optional[str] = None
+    nid_file: Optional[int] = None
+
+class FacilityLabAnonymousResponse(BaseModel):
+    data: List[FacilityLabAnonymous]
+    total: int

@@ -1,8 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Response,Request, BackgroundTasks # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, BackgroundTasks, UploadFile, File as FastAPIFile, Form
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pathlib import Path
+import shutil
+import os
+import uuid
+import time
 
 # Import schema dan controller yang relevan
 from ..schemas import filesSchema as schema, usersSchema
@@ -25,6 +29,9 @@ router = APIRouter(
     prefix="/files",
     tags=["Files"]
 )
+
+UPLOAD_DIR = Path("storage/uploads")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # Fungsi get_db dan check_forbidden_roles (asumsi sama)
 def get_db():
@@ -294,3 +301,62 @@ def get_file_raw(file_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Physical file not found")
 
     return FileResponse(path=str(file_path.resolve()), media_type=db_file.vtype, filename=db_file.vname)
+
+@router.get("/vcode/{file_vcode}/raw")
+def get_file_raw_by_vcode(file_vcode: str, db: Session = Depends(get_db)):
+    """
+    Serve file content for frontend preview by vcode.
+    GET /files/vcode/{file_vcode}/raw
+    """
+    db_file = fileController.get_file_by_vcode(db=db, file_vcode=file_vcode)
+    if not db_file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    file_path = Path(db_file.vpath)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="Physical file not found")
+
+    return FileResponse(path=str(file_path.resolve()), media_type=db_file.vtype, filename=db_file.vname)
+
+@router.post("/upload", response_model=schema.File, status_code=status.HTTP_201_CREATED)
+def upload_file(
+    file: UploadFile = FastAPIFile(...),
+    category: str = Form("general"),
+    is_public: int = Form(1),
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    check_forbidden_roles(db, current_user)
+    
+    try:
+        # Generate unique filename
+        file_ext = Path(file.filename).suffix
+        unique_filename = f"{uuid.uuid4()}{file_ext}"
+        file_path = UPLOAD_DIR / unique_filename
+        
+        # Save file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # Create metadata
+        file_size = os.path.getsize(file_path)
+        vcode = str(uuid.uuid4())
+        
+        file_data = schema.FileCreate(
+            vcode=vcode,
+            vname=file.filename,
+            vtype=file.content_type or "application/octet-stream",
+            vpath=str(file_path),
+            vextension=file_ext,
+            nsize=file_size,
+            vcategory=category,
+            nis_public=is_public,
+            vcreated_by=current_user.vcode
+        )
+        
+        new_file = fileController.create_file(db=db, file_data=file_data)
+        
+        return new_file
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")

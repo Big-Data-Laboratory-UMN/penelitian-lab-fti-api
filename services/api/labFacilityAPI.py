@@ -223,3 +223,34 @@ def get_labs_by_department(
     except Exception as e:
         print(f"Internal server error: {e}") 
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
+@router.get("/anonymous/lab/{lab_vcode}", response_model=schema.FacilityLabAnonymousResponse)
+def get_facilities_by_lab_anonymous(
+    lab_vcode: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get facilities for a lab anonymously by lab vcode.
+    Returns LabFacility objects with facility details.
+    """
+    try:
+        results = labFacilityController.get_facilities_by_lab_code_anonymous(db=db, lab_vcode=lab_vcode)
+        if results is None:
+             raise HTTPException(status_code=404, detail="Lab not found")
+        
+        # Format to match FacilityLabAnonymousResponse
+        formatted_data = []
+        for lab_facility, facility_name, facility_desc, facility_nid_file in results:
+            formatted_data.append({
+                "nid": lab_facility.nid,
+                "vcode": lab_facility.vcode,
+                "vcode_facility": lab_facility.vcode_facility,
+                "vname": facility_name,
+                "vdesc": facility_desc,
+                "nid_file": facility_nid_file
+            })
+            
+        return {"data": formatted_data, "total": len(formatted_data)}
+    except Exception as e:
+        print(f"Error getting facilities anonymously: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error")

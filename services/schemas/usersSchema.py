@@ -66,6 +66,13 @@ class UserDropdown(BaseModel):
 class UserDropdownResponse(BaseModel):
     data: List[UserDropdown]
 
+class UserSafeResponse(BaseModel):
+    vname: str
+    vemail: EmailStr
+
+    class Config:
+        from_attributes = True
+
 class UserLogin(BaseModel):
     email: EmailStr
     password: str

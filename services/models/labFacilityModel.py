@@ -24,6 +24,8 @@ class LabFacility(Base):
 
     vcode = Column(String(100), unique=True, index=True, nullable=False)
 
+    vcode_lab = Column(String(100), nullable=False)
+    vcode_facility = Column(String(100), nullable=False)
     nid_lab = Column(Integer, ForeignKey("tblm_lab.nid"), nullable=False)
     nid_facility = Column(Integer, ForeignKey("tblm_facility.nid"), nullable=False) 
 
