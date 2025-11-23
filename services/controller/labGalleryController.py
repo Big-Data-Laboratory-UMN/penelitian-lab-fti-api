@@ -17,6 +17,26 @@ def get_gallery_by_lab_id(db: Session, lab_id: int):
 def get_gallery_item(db: Session, gallery_id: int):
     return db.query(models.LabGallery).filter(models.LabGallery.nid == gallery_id).first()
 
+def get_all_gallery_items(db: Session, skip: int = 0, limit: int = 100, status: int = None, search: str = None):
+    query = db.query(models.LabGallery)
+    
+    if status is not None:
+        query = query.filter(models.LabGallery.nstatus == status)
+        
+    if search:
+        search_term = f"%{search}%"
+        query = query.join(models.LabGallery.lab).filter(
+            or_(
+                models.LabGallery.vcode.ilike(search_term),
+                models.LabGallery.lab.property.mapper.class_.vtitle.ilike(search_term)
+            )
+        )
+        
+    total = query.count()
+    data = query.offset(skip).limit(limit).all()
+    
+    return {"data": data, "total": total}
+
 def create_gallery_item(db: Session, gallery: schema.LabGalleryCreate, current_user: usersSchema.User):
     db_gallery = models.LabGallery(**gallery.model_dump())
     db_gallery.vcreated_by = current_user.vcode

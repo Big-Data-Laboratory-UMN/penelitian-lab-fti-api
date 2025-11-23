@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from ..schemas import labGallerySchema as schema, usersSchema
-from ..controller import labGalleryController, usersController, auditLogController
+from ..controller import labGalleryController, usersController, auditLogController, userAccessController
 from ..database import SessionLocal
 
 router = APIRouter(
@@ -18,9 +18,29 @@ def get_db():
     finally:
         db.close()
 
+ALLOWED_LAB_GALLERY_ROLES = {"SA", "ADM", "PIC"}
+
+def require_lab_gallery_role(db: Session, current_user: usersSchema.User):
+    user_roles = set(userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid))
+    if not (user_roles & ALLOWED_LAB_GALLERY_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Role tidak diizinkan untuk mengubah Lab Gallery (butuh SA/ADM/PIC)."
+        )
+
 @router.get("/{lab_id}", response_model=List[schema.LabGallery])
 def get_gallery_by_lab(lab_id: int, db: Session = Depends(get_db)):
     return labGalleryController.get_gallery_by_lab_id(db, lab_id)
+
+@router.get("/", response_model=schema.LabGalleryResponse)
+def get_all_gallery_items(
+    skip: int = 0,
+    limit: int = 100,
+    status: Optional[int] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    return labGalleryController.get_all_gallery_items(db, skip, limit, status, search)
 
 @router.post("/", response_model=schema.LabGallery, status_code=status.HTTP_201_CREATED)
 def create_gallery_item(
@@ -31,6 +51,7 @@ def create_gallery_item(
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     try:
+        require_lab_gallery_role(db, current_user)
         new_gallery = labGalleryController.create_gallery_item(db=db, gallery=gallery, current_user=current_user)
         
         background_tasks.add_task(
@@ -57,6 +78,7 @@ def delete_gallery_item(
     db: Session = Depends(get_db), 
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
+    require_lab_gallery_role(db, current_user)
     deleted_gallery = labGalleryController.delete_gallery_item(db=db, gallery_id=gallery_id, current_user=current_user)
     if not deleted_gallery:
         raise HTTPException(status_code=404, detail="Gallery item not found")

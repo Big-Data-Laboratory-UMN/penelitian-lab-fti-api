@@ -28,12 +28,14 @@ def get_db():
     finally:
         db.close()
 
-def check_forbidden_roles(db: Session, current_user: usersSchema.User):
-    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    if "PIC" in user_roles or "VSTR" in user_roles:
+ALLOWED_LAB_CONTENT_ROLES = {"SA", "ADM", "PIC"}
+
+def require_lab_content_role(db: Session, current_user: usersSchema.User):
+    user_roles = set(userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid))
+    if not (user_roles & ALLOWED_LAB_CONTENT_ROLES):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak punya hak akses untuk operasi ini."
+            detail="Role tidak diizinkan untuk mengubah Lab Content (butuh SA/ADM/PIC)."
         )
 
 @router.get("/", response_model=schema.LabContentResponse)
@@ -59,7 +61,7 @@ def create_lab_content(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user)
+    require_lab_content_role(db, current_user)
     try:
         payload.vcreated_by = current_user.vcode
         return labContentController.create_lab_content(db=db, lc_data=payload)
@@ -74,7 +76,7 @@ def update_lab_content(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user)
+    require_lab_content_role(db, current_user)
     try:
         payload.vmodified_by = current_user.vcode
         db_lc = labContentController.update_lab_content(db=db, vcode=vcode, lc_data=payload)
@@ -91,7 +93,7 @@ def delete_lab_content(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user)
+    require_lab_content_role(db, current_user)
     deleted = labContentController.delete_lab_content(db=db, vcode=vcode, modified_by=current_user.vcode)
     if deleted is None:
         raise HTTPException(status_code=404, detail="Lab content tidak ditemukan atau gagal dihapus")

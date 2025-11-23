@@ -50,3 +50,27 @@ def get_lab_content_files(
         values=[schema.LabContentFile(**item.__dict__) for item in lab_contents_data],
         total=len(lab_contents_data)
     )
+
+@router.post("/", response_model=schema.LabContentFile, status_code=status.HTTP_201_CREATED)
+def create_lab_content_file(
+    file_data: schema.LabContentFileCreate,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    try:
+        new_file = labContentFilesController.create_lab_content_file(db=db, file_data=file_data, current_user=current_user)
+        return new_file
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/{nid}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_lab_content_file(
+    nid: int,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    try:
+        labContentFilesController.delete_lab_content_file(db=db, nid=nid, current_user=current_user)
+        return
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

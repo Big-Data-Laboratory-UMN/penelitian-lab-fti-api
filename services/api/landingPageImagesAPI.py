@@ -28,6 +28,16 @@ def get_db():
     finally:
         db.close()
 
+ALLOWED_LANDING_PAGE_IMAGE_ROLES = {"SA", "ADM"}
+
+def require_landing_page_image_role(db: Session, current_user: usersSchema.User):
+    user_roles = set(userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid))
+    if not (user_roles & ALLOWED_LANDING_PAGE_IMAGE_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Role tidak diizinkan (hanya SA/ADM) untuk operasi Landing Page Image."
+        )
+
 
 @router.get("/{landing_page_vcode}", response_model=schema.LandingPageImageResponse)
 def get_home_content_file(
@@ -62,3 +72,32 @@ def get_home_content_file(
         value=schema.LandingPageImage(**home_images_contents_data.__dict__),
         found=True
     )
+
+@router.post("/", response_model=schema.LandingPageImage, status_code=status.HTTP_201_CREATED)
+def create_home_content_file(
+    image_data: schema.LandingPageImageCreate,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    require_landing_page_image_role(db, current_user)
+    try:
+        new_image = landingPageImagesController.create_landing_page_image(db=db, image_data=image_data, current_user=current_user)
+        return new_image
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/{vcode}", response_model=schema.LandingPageImage)
+def update_home_content_file(
+    vcode: str,
+    image_data: schema.LandingPageImageUpdate,
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    require_landing_page_image_role(db, current_user)
+    try:
+        updated_image = landingPageImagesController.update_landing_page_image(db=db, vcode=vcode, image_data=image_data, current_user=current_user)
+        if not updated_image:
+            raise HTTPException(status_code=404, detail="Image not found")
+        return updated_image
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

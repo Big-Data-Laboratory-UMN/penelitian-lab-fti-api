@@ -1,6 +1,7 @@
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
+from .labSchema import LabDropdown
 
 class LabGalleryCreate(BaseModel):
     vcode: str
@@ -25,6 +26,7 @@ class LabGallery(BaseModel):
     vcreated_by: Optional[str] = None
     dmodified_at: Optional[datetime] = None
     vmodified_by: Optional[str] = None
+    lab: Optional[LabDropdown] = None
 
     class Config:
         from_attributes = True
