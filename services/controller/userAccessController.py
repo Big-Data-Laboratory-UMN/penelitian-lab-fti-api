@@ -1,5 +1,6 @@
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
+from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import userAccessModel as models
@@ -103,6 +104,7 @@ def update_user_access(db: Session, user_access_vcode: str, user_access: schema.
 
 def get_user_access(
     db: Session,
+    current_user: usersModel.User,
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,
@@ -113,6 +115,34 @@ def get_user_access(
     nid_lab: int | None = None, 
     vcode: str | None = None,
 ):
+    # --- 1. LOGIC SCOPE (Context-Aware) ---
+    # Kita cek user ini SA atau ADM Dept mana
+    admin_accesses = db.query(models.UserAccess).join(
+        rolesModel.Role, models.UserAccess.nid_role == rolesModel.Role.nid
+    ).filter(
+        models.UserAccess.nid_user == current_user.nid,
+        models.UserAccess.nstatus == 1
+    ).all()
+
+    is_global = False
+    allowed_dept_ids = set()
+
+    for access in admin_accesses:
+        role_code = access.role.vcode
+        if role_code == 'SA':
+            is_global = True
+            break
+        elif role_code == 'ADM':
+            if access.nid_department:
+                allowed_dept_ids.add(access.nid_department)
+    
+    # Validasi hak akses
+    if not is_global and not allowed_dept_ids:
+         # Jika bukan SA dan tidak punya departemen (atau cuma PIC/VSTR)
+         # Sebenarnya di API layer sudah dicek, tapi ini double safety
+         return {"data": [], "total": 0}
+
+    # --- 2. BUILD BASE QUERY ---
     query = db.query(
         models.UserAccess,
         rolesModel.Role.vname.label("role_name"),
@@ -128,6 +158,17 @@ def get_user_access(
     ).join(
         labModel.Lab, models.UserAccess.nid_lab == labModel.Lab.nid, isouter=True 
     )
+
+    # --- 3. APPLY CONTEXT FILTER ---
+    if not is_global:
+        # CASE: Admin Departemen
+        # Filter 1: Hanya tampilkan akses yang ada di departemen si Admin
+        query = query.filter(models.UserAccess.nid_department.in_(allowed_dept_ids))
+        
+        # Filter 2: Hanya tampilkan akses dengan role VSTR atau PIC
+        query = query.filter(rolesModel.Role.vcode.in_(['VSTR', 'PIC']))
+
+    # --- 4. FILTER STANDAR (Lanjutan) ---
     if search:
         search_filter = or_(
             models.UserAccess.vcode.ilike(f"%{search}%"),
@@ -138,16 +179,25 @@ def get_user_access(
         )
         query = query.filter(search_filter)
         
-        
     if nstatus is not None:
         query = query.filter(models.UserAccess.nstatus == nstatus)
     if nid_role is not None:
         query = query.filter(models.UserAccess.nid_role == nid_role)
     if nid_user is not None: 
         query = query.filter(models.UserAccess.nid_user == nid_user)
+    
+    # Filter nid_department dari parameter user
     if nid_department is not None: 
-        query = query.filter(models.UserAccess.nid_department == nid_department)
-    if nid_lab is not None: # [NEW] Filter by lab
+        if is_global:
+            # Kalau SA, bebas filter apa aja
+            query = query.filter(models.UserAccess.nid_department == nid_department)
+        else:
+            # Kalau ADM, pastikan dia cuma filter di dalam scope-nya sendiri
+            # (Sebenarnya logic 'in_(allowed_dept_ids)' di atas sudah nge-cover ini, 
+            # tapi kalau dia minta dept lain, query bakal kosong, which is correct secure behavior)
+            query = query.filter(models.UserAccess.nid_department == nid_department)
+
+    if nid_lab is not None:
         query = query.filter(models.UserAccess.nid_lab == nid_lab)
     if vcode:
         query = query.filter(models.UserAccess.vcode.ilike(f"%{vcode}%"))

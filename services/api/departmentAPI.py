@@ -37,6 +37,14 @@ def check_forbidden_roles(db: Session, current_user: usersSchema.User):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak punya hak akses untuk operasi ini."
         )
+        
+def check_adm_sa_only(db: Session, current_user: usersSchema.User):
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    if "PIC" in user_roles or "VSTR" in user_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak punya hak akses untuk operasi ini."
+        )
 
 @router.get("/", response_model=schema.DepartmentResponse)
 def read_all_departments(
@@ -187,18 +195,45 @@ def soft_delete_department(
 
 @router.get("/all-for-dropdown/", response_model=schema.DepartmentDropdownResponse)
 def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     departments_data = departmentController.get_all_departments_for_dropdown(db=db)
     return departments_data
 
 
 @router.get("/all-active-for-dropdown/", response_model=schema.DepartmentDropdownResponse)
 def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     departments_data = departmentController.get_all_active_departments_for_dropdown(db=db)
     return departments_data
 
 @router.get("/all-active-for-user-dropdown/", response_model=schema.DepartmentDropdownResponse)
-def read_all_departments_for_dropdown(db: Session = Depends(get_db)):
+def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+    check_adm_sa_only(db, current_user)
     departments_data = departmentController.get_all_active_departments_for_dropdown(db=db, for_user=True)
+    return departments_data
+
+@router.get("/scope-all-for-dropdown/", response_model=schema.DepartmentDropdownResponse)
+def read_scope_all_departments_for_dropdown(
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    [SCOPED] Semua Department (Active/Inactive) sesuai Admin.
+    - SA: All.
+    - ADM: Only their department.
+    """
+    # check_adm_sa_only(db, current_user)
+    departments_data = departmentController.get_scoped_departments_for_dropdown(db=db, current_user=current_user)
+    return departments_data
+
+@router.get("/scope-active-for-dropdown/", response_model=schema.DepartmentDropdownResponse)
+def read_scope_active_departments_for_dropdown(
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    [SCOPED] Department Aktif saja sesuai Admin.
+    """
+    # check_adm_sa_only(db, current_user)
+    departments_data = departmentController.get_scoped_active_departments_for_dropdown(db=db, current_user=current_user)
     return departments_data

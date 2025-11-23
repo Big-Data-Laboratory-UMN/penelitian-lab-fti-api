@@ -38,6 +38,14 @@ def check_forbidden_roles(db: Session, current_user: usersSchema.User):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak punya hak akses untuk operasi ini."
         )
+        
+def check_adm_sa_only(db: Session, current_user: usersSchema.User):
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    if "PIC" in user_roles or "VSTR" in user_roles :
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak punya hak akses untuk operasi ini."
+        )
 
 @router.get("/", response_model=schema.DepartmentLabResponse)
 def read_all_department_labs(
@@ -199,7 +207,7 @@ def get_labs_by_department(
     db: Session = Depends(get_db), 
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user) 
+    check_adm_sa_only(db, current_user) 
     
     try:
         labs = departmentLabController.get_labs_by_department_for_dropdown(

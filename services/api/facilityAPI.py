@@ -12,7 +12,9 @@ from ..schemas.facilitySchema import Facility
 from ..controller import facilityController, usersController, userAccessController
 from ..controller import auditLogController
 from ..database import SessionLocal
-
+import uuid
+from ..controller import labFacilityController 
+from ..schemas import labFacilitySchema
 from datetime import datetime
 import pytz
 
@@ -56,7 +58,7 @@ def read_all_facilities(
 ):
     check_forbidden_roles(db, current_user)
     facilities_data = facilityController.get_facilities(
-        db=db, skip=skip, limit=limit, search=search,
+        db=db, skip=skip, limit=limit, search=search, current_user=current_user,
         vname=facilityName, vcode=facilityCode, vdesc=facilityDesc, nstatus=status
     )
     return facilities_data
@@ -79,25 +81,64 @@ async def create_new_facility_with_file(
     vcode: str = Form(...),
     vname: str = Form(...),
     vdesc: str = Form(...),
+    
+    nid_lab: Optional[int] = Form(None), 
+    
     file: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
+    
+    # 1. Cek Role User
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    is_admin = 'ADM' in user_roles
+    is_sa = 'SA' in user_roles
+
+    # 2. Validasi Khusus Admin
+    # Kalau dia Admin (dan bukan SA), WAJIB pilih Lab.
+    if is_admin and not is_sa and not nid_lab:
+        raise HTTPException(
+            status_code=400, 
+            detail="Admin wajib memilih Lab untuk fasilitas ini."
+        )
+
     try:
-        # Data ini yang kita jadiin 'jafter'
+        # 3. Buat Facility Dulu
         facility_data = schema.FacilityCreate(
             vcode=vcode, vname=vname, vdesc=vdesc,
             vcreated_by=current_user.vcode
         )
         
-        # Panggil controller asli
         new_facility = await facilityController.create_facility_with_file(
             db=db, facility_data=facility_data, file=file,
             current_user=current_user, request=request 
         )
         
-        # --- LOG ACTIVITY (BACKGROUND) ---
+        # 4. [LOGIC BARU] Auto Mapping ke Lab (Jika nid_lab diisi)
+        if nid_lab:
+            try:
+                print(f"[AutoMap] Mapping Facility {new_facility.vcode} to Lab ID {nid_lab}...")
+                
+                # Generate kode unik mapping
+                mapping_vcode = f"LFA-{uuid.uuid4().hex[:8].upper()}"
+                
+                mapping_data = labFacilitySchema.FacilityLabCreate(
+                    vcode=mapping_vcode,
+                    nid_lab=nid_lab,
+                    nid_facility=new_facility.nid, # ID Facility yang baru jadi
+                    vcreated_by=current_user.vcode
+                )
+                
+                labFacilityController.create_facility_lab(db=db, facility_lab=mapping_data)
+                print(f"[AutoMap] Success mapping created.")
+                
+            except Exception as map_err:
+                # Kalau mapping gagal, jangan gagalin create facility-nya, tapi log errornya
+                print(f"[AutoMap Error] Gagal mapping otomatis: {map_err}")
+                # Opsional: Bisa raise error kalau mau strict transaction
+        
+        # 5. Log Activity
         background_tasks.add_task(
             auditLogController.create_activity_log_task,
             nid_user=current_user.nid,
@@ -105,13 +146,13 @@ async def create_new_facility_with_file(
             target_model="Facility",
             target_identifier=new_facility.vcode,
             jbefore=None, 
-            jafter=facility_data.model_dump(), # Pake data dari form
+            jafter=facility_data.model_dump(),
             ip=request.client.host,
             user_agent=request.headers.get("user-agent")
         )
-        # ---------------------------------
 
         return new_facility
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -267,3 +308,27 @@ def get_facility_by_code_anonymous(
     except Exception as e:
         print(f"Error getting facility anonymously: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
+
+@router.get("/scope-all-for-dropdown/", response_model=schema.FacilityDropdownResponse)
+def read_scope_all_facilities_for_dropdown(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    [SCOPED] Semua Facility (Active/Inactive) sesuai Departemen Admin.
+    """
+    check_forbidden_roles(db, current_user)
+    facilities_data = facilityController.get_scoped_facilities_for_dropdown(db=db, current_user=current_user)
+    return facilities_data
+
+@router.get("/scope-active-for-dropdown/", response_model=schema.FacilityDropdownResponse)
+def read_scope_active_facilities_for_dropdown(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    [SCOPED] Facility Aktif Saja sesuai Departemen Admin.
+    """
+    check_forbidden_roles(db, current_user)
+    facilities_data = facilityController.get_scoped_active_facilities_for_dropdown(db=db, current_user=current_user)
+    return facilities_data

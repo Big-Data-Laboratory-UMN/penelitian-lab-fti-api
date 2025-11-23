@@ -38,6 +38,14 @@ def check_forbidden_roles(db: Session, current_user: usersSchema.User):
             detail="Anda tidak punya hak akses untuk operasi ini."
         )
 
+def check_adm_sa_only(db: Session, current_user: usersSchema.User):
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    if "PIC" in user_roles or "VSTR" in user_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak punya hak akses untuk operasi ini."
+        )
+
 @router.get("/", response_model=schema.RoleResponse)
 def read_all_roles(
     skip: int = 0, 
@@ -170,16 +178,16 @@ def read_all_roles_for_dropdown(db: Session = Depends(get_db), current_user: use
     """
     Mengambil semua data role aktif untuk keperluan dropdown.
     """
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     roles_data = rolesController.get_all_roles_for_dropdown(db=db)
     return roles_data
 
 @router.get("/all-active-for-dropdown/", response_model=schema.RoleDropdownResponse)
-def read_all_roles_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def read_all_active_roles_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     """
     Mengambil semua data role aktif untuk keperluan dropdown.
     """
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     roles_data = rolesController.get_all_active_roles_for_dropdown(db=db)
     return roles_data
 
@@ -188,6 +196,33 @@ def read_all_roles_no_pagination(db: Session = Depends(get_db), current_user: us
     """
     Mengambil semua data role tanpa paginasi.
     """
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     roles = rolesController.get_all_roles(db=db)
     return roles["data"]
+
+@router.get("/scope-all-for-dropdown/", response_model=schema.RoleDropdownResponse)
+def read_scope_all_roles_for_dropdown(
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    [SCOPED] Semua Role (Active & Inactive) sesuai hak akses Admin.
+    - SA: All
+    - ADM: VSTR & PIC Only
+    """
+    # check_adm_sa_only(db, current_user) # Optional
+    roles_data = rolesController.get_scoped_roles_for_dropdown(db=db, current_user=current_user)
+    return roles_data
+
+@router.get("/scope-active-for-dropdown/", response_model=schema.RoleDropdownResponse)
+def read_scope_active_roles_for_dropdown(
+    db: Session = Depends(get_db), 
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    [SCOPED] Role Aktif Saja sesuai hak akses Admin.
+    Biasanya dipakai di Form 'Add User Access'.
+    """
+    # check_adm_sa_only(db, current_user) # Optional
+    roles_data = rolesController.get_scoped_active_roles_for_dropdown(db=db, current_user=current_user)
+    return roles_data

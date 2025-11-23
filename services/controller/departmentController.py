@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import departmentModel as models
+from ..models import userAccessModel, rolesModel
 from ..schemas import departmentSchema as schema, usersSchema
 
 import pytz
@@ -163,3 +164,60 @@ def get_all_departments_for_dropdown(db: Session):
         .all()
     )
     return {"data": departments}
+
+def get_scoped_departments_for_dropdown(db: Session, current_user: usersSchema.User):
+    """
+    [SCOPED] Mengambil SEMUA Department (Active/Inactive) sesuai akses Admin.
+    - SA: Liat semua.
+    - ADM: Cuma liat department dia sendiri.
+    """
+    return _get_departments_by_scope_logic(db, current_user, only_active=False)
+
+def get_scoped_active_departments_for_dropdown(db: Session, current_user: usersSchema.User):
+    """
+    [SCOPED] Mengambil Department AKTIF saja sesuai akses Admin.
+    """
+    return _get_departments_by_scope_logic(db, current_user, only_active=True)
+
+
+# --- Helper Internal untuk Logic Scope Department ---
+def _get_departments_by_scope_logic(db: Session, current_user: usersSchema.User, only_active: bool):
+    # 1. Cek Scope User
+    admin_accesses = db.query(userAccessModel.UserAccess).join(
+        rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+    ).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+
+    is_global = False
+    allowed_dept_ids = set()
+
+    for access in admin_accesses:
+        if access.role.vcode == 'SA':
+            is_global = True
+            break
+        elif access.role.vcode == 'ADM':
+            if access.nid_department:
+                allowed_dept_ids.add(access.nid_department)
+
+    # 2. Build Base Query
+    query = db.query(models.Department)
+    
+    if only_active:
+        query = query.filter(models.Department.nstatus == 1)
+
+    # 3. Apply Filter Scope
+    if not is_global:
+        if not allowed_dept_ids:
+            # Admin tapi gak punya departemen? Return kosong
+            return {"data": []}
+            
+        # Filter langsung ke ID department
+        query = query.filter(models.Department.nid.in_(allowed_dept_ids))
+
+    # 4. Return
+    query = query.order_by(models.Department.vname.asc())
+    data = query.all()
+    
+    return {"data": data}
