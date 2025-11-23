@@ -20,7 +20,8 @@ def get_lab_contents(
     vcode: str | None = None,
     vsummary: str | None = None,
     vcontent: str | None = None,
-    nstatus: int | None = None
+    nstatus: int | None = None,
+    accessible_lab_ids: list[int] | None = None
 ):
     query = db.query(models.LabContent)
 
@@ -33,6 +34,12 @@ def get_lab_contents(
         )
         query = query.filter(search_filter)
 
+    # Filter by accessible labs (None means all labs for SA)
+    if accessible_lab_ids is not None:
+        if len(accessible_lab_ids) == 0:
+            # User has no accessible labs, return empty
+            return {"data": [], "total": 0}
+        query = query.filter(models.LabContent.nid_lab.in_(accessible_lab_ids))
 
     if vcode:
         query = query.filter(models.LabContent.vcode.ilike(f"%{vcode}%"))

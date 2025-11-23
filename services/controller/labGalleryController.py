@@ -17,11 +17,20 @@ def get_gallery_by_lab_id(db: Session, lab_id: int):
 def get_gallery_item(db: Session, gallery_id: int):
     return db.query(models.LabGallery).filter(models.LabGallery.nid == gallery_id).first()
 
-def get_all_gallery_items(db: Session, skip: int = 0, limit: int = 100, status: int = None, search: str = None):
+# Alias for consistency
+def get_gallery_by_id(db: Session, gallery_id: int):
+    return get_gallery_item(db, gallery_id)
+
+def get_all_gallery_items(db: Session, skip: int = 0, limit: int = 100, status: int = None, search: str = None, accessible_lab_ids: list[int] | None = None):
     query = db.query(models.LabGallery)
-    
-    if status is not None:
-        query = query.filter(models.LabGallery.nstatus == status)
+        # Filter by accessible labs (None means all labs for SA)
+    if accessible_lab_ids is not None:
+        if len(accessible_lab_ids) == 0:
+            # User has no accessible labs, return empty
+            return {"data": [], "total": 0}
+        query = query.filter(models.LabGallery.nid_lab.in_(accessible_lab_ids))
+        if status is not None:
+            query = query.filter(models.LabGallery.nstatus == status)
         
     if search:
         search_term = f"%{search}%"

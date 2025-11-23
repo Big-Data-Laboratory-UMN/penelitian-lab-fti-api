@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from ..schemas import landingPageSchema as schema, usersSchema
-from ..controller import landingPageController, userAccessController, usersController
+from ..controller import landingPageController, usersController
 from ..database import SessionLocal
+from utils import permissions
 
 from datetime import datetime
 import pytz
@@ -28,16 +29,6 @@ def get_db():
     finally:
         db.close()
 
-ALLOWED_LANDING_PAGE_ROLES = {"SA", "ADM"}
-
-def require_landing_page_role(db: Session, current_user: usersSchema.User):
-    user_roles = set(userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid))
-    if not (user_roles & ALLOWED_LANDING_PAGE_ROLES):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Role tidak diizinkan (hanya SA/ADM) untuk operasi Landing Page."
-        )
-
 @router.get("/", response_model=schema.LandingPageResponse)
 def read_all_home_data(
     skip: int = 0,
@@ -60,7 +51,11 @@ def create_landing_page(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    require_landing_page_role(db, current_user)
+    if not permissions.can_edit_landing_page(db, current_user.nid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya Super Admin yang dapat membuat Landing Page."
+        )
     try:
         payload.vcreated_by = current_user.vcode
         return landingPageController.create_landing_page(db=db, lp_data=payload)
@@ -75,7 +70,11 @@ def update_landing_page(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    require_landing_page_role(db, current_user)
+    if not permissions.can_edit_landing_page(db, current_user.nid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya Super Admin yang dapat mengubah Landing Page."
+        )
     try:
         payload.vmodified_by = current_user.vcode
         db_lp = landingPageController.update_landing_page(db=db, vcode=vcode, lp_data=payload)
@@ -92,7 +91,11 @@ def delete_landing_page(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    require_landing_page_role(db, current_user)
+    if not permissions.can_edit_landing_page(db, current_user.nid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya Super Admin yang dapat menghapus Landing Page."
+        )
     deleted = landingPageController.delete_landing_page(db=db, vcode=vcode, modified_by=current_user.vcode)
     if deleted is None:
         raise HTTPException(status_code=404, detail="Landing page tidak ditemukan atau gagal dihapus")

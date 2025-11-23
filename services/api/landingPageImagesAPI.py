@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from ..schemas import landingPageImageSchema as schema, usersSchema
-from ..controller import landingPageImagesController, userAccessController, usersController
+from ..controller import landingPageImagesController, usersController
 from ..database import SessionLocal
+from utils import permissions
 
 from datetime import datetime
 import pytz
@@ -27,16 +28,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
-ALLOWED_LANDING_PAGE_IMAGE_ROLES = {"SA", "ADM"}
-
-def require_landing_page_image_role(db: Session, current_user: usersSchema.User):
-    user_roles = set(userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid))
-    if not (user_roles & ALLOWED_LANDING_PAGE_IMAGE_ROLES):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Role tidak diizinkan (hanya SA/ADM) untuk operasi Landing Page Image."
-        )
 
 
 @router.get("/{landing_page_vcode}", response_model=schema.LandingPageImageResponse)
@@ -79,7 +70,11 @@ def create_home_content_file(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    require_landing_page_image_role(db, current_user)
+    if not permissions.can_edit_landing_page(db, current_user.nid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya Super Admin yang dapat membuat Landing Page Image."
+        )
     try:
         new_image = landingPageImagesController.create_landing_page_image(db=db, image_data=image_data, current_user=current_user)
         return new_image
@@ -93,7 +88,11 @@ def update_home_content_file(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    require_landing_page_image_role(db, current_user)
+    if not permissions.can_edit_landing_page(db, current_user.nid):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Hanya Super Admin yang dapat mengubah Landing Page Image."
+        )
     try:
         updated_image = landingPageImagesController.update_landing_page_image(db=db, vcode=vcode, image_data=image_data, current_user=current_user)
         if not updated_image:
