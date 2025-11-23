@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import labModel as models
+from ..models import departmentLabModel, userAccessModel, rolesModel
 from ..schemas import labSchema as schema, usersSchema
 
 import pytz
@@ -92,16 +93,53 @@ def update_lab(db: Session, lab_vcode: str, lab: schema.LabUpdate, current_user:
 
 def get_labs(
     db: Session,
+    current_user: usersSchema.User, 
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,
     vname: str | None = None,
     vcode: str | None = None,
     vdesc: str | None = None,
-    nstatus: int | None = None
+    nstatus: int | None = None,
 ):
+    # 1. LOGIC SCOPE: Cek user ini SA atau Admin Dept mana
+    admin_accesses = db.query(userAccessModel.UserAccess).join(
+        rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+    ).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+
+    is_global = False
+    allowed_dept_ids = set()
+
+    for access in admin_accesses:
+        if access.role.vcode == 'SA':
+            is_global = True
+            break
+        elif access.role.vcode == 'ADM':
+            if access.nid_department:
+                allowed_dept_ids.add(access.nid_department)
+
+    # 2. Build Base Query
     query = db.query(models.Lab)
 
+    # 3. Apply Scope Filter (Jika bukan SA)
+    if not is_global:
+        if not allowed_dept_ids:
+            # Admin tanpa departemen -> return kosong
+            return {"data": [], "total": 0}
+        
+        # Join ke DepartmentLab untuk memfilter lab yang dimiliki departemen admin
+        query = query.join(
+            departmentLabModel.DepartmentLab,
+            models.Lab.nid == departmentLabModel.DepartmentLab.nid_lab
+        ).filter(
+            departmentLabModel.DepartmentLab.nid_department.in_(allowed_dept_ids),
+            departmentLabModel.DepartmentLab.nstatus == 1
+        ).distinct() # Hindari duplikat jika lab terhubung ke multiple dept milik admin yg sama
+
+    # 4. Filter Pencarian Standar (Existing Logic)
     if search:
         search_filter = or_(
             models.Lab.vname.ilike(f"%{search}%"),
@@ -119,11 +157,9 @@ def get_labs(
     if nstatus is not None:
         query = query.filter(models.Lab.nstatus == nstatus)
 
+    # 5. Pagination & Return
     total = query.count()
-
-    # Urutkan berdasarkan waktu terakhir diubah/dibuat
     query = query.order_by(models.Lab.dsort_at.desc())
-
     data = query.offset(skip).limit(limit).all()
 
     return {"data": data, "total": total}
@@ -156,3 +192,60 @@ def get_all_labs_for_dropdown(db: Session):
         .all()
     )
     return {"data": labs}
+
+def get_scoped_labs_for_dropdown(db: Session, current_user: usersSchema.User):
+    """
+    [SCOPED] Mengambil SEMUA lab (Active/Inactive) berdasarkan departemen Admin.
+    """
+    return _get_labs_by_scope_logic(db, current_user, only_active=False)
+
+def get_scoped_active_labs_for_dropdown(db: Session, current_user: usersSchema.User):
+    """
+    [SCOPED] Mengambil lab AKTIF saja berdasarkan departemen Admin.
+    """
+    return _get_labs_by_scope_logic(db, current_user, only_active=True)
+
+
+# --- Helper Internal untuk Logic Scope ---
+def _get_labs_by_scope_logic(db: Session, current_user: usersSchema.User, only_active: bool):
+    # 1. Cek Scope User
+    admin_accesses = db.query(userAccessModel.UserAccess).join(
+        rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+    ).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+
+    is_global = False
+    allowed_dept_ids = set()
+
+    for access in admin_accesses:
+        if access.role.vcode == 'SA':
+            is_global = True
+            break
+        elif access.role.vcode == 'ADM':
+            if access.nid_department:
+                allowed_dept_ids.add(access.nid_department)
+
+    # 2. Build Base Query
+    query = db.query(models.Lab)
+    if only_active:
+        query = query.filter(models.Lab.nstatus == 1)
+
+    # 3. Apply Filter Scope
+    if not is_global:
+        if not allowed_dept_ids:
+            return {"data": []}
+            
+        query = query.join(
+            departmentLabModel.DepartmentLab, 
+            models.Lab.nid == departmentLabModel.DepartmentLab.nid_lab
+        ).filter(
+            departmentLabModel.DepartmentLab.nid_department.in_(allowed_dept_ids),
+            departmentLabModel.DepartmentLab.nstatus == 1
+        ).distinct()
+
+    # 4. Return
+    query = query.order_by(models.Lab.vname.asc())
+    data = query.all()
+    return {"data": data}

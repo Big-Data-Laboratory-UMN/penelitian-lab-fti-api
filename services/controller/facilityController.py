@@ -10,6 +10,8 @@ from ..schemas import usersSchema
 from ..models import facilityModel as models
 from ..models import filesModel 
 
+from ..models import userAccessModel, rolesModel, labFacilityModel, departmentLabModel, labModel
+
 from . import fileController 
 
 import pytz
@@ -165,46 +167,95 @@ async def update_facility_with_file(
         raise ValueError(f"Operasi tidak dapat diselesaikan. {e}")
 
 def get_facilities(
-    db: Session, skip: int = 0, limit: int = 10, search: str | None = None,
-    vname: str | None = None, vcode: str | None = None, vdesc: str | None = None,
-    nstatus: int | None = None
+    db: Session,
+    current_user: usersSchema.User,
+    skip: int = 0,
+    limit: int = 10,
+    search: str | None = None,
+    vname: str | None = None,
+    vcode: str | None = None,
+    vdesc: str | None = None,
+    nstatus: int | None = None,
 ):
-    """Ambil list fasilitas untuk data table, SUDAH DI-JOIN dengan file."""
-    
-    query = db.query(
-        models.Facility,
-        filesModel.Files  
-    ).outerjoin(
-        filesModel.Files, models.Facility.nid_file == filesModel.Files.nid 
+    # 1. LOGIC SCOPE (Cek Admin/SA)
+    admin_accesses = db.query(userAccessModel.UserAccess).join(
+        rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+    ).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+
+    is_global = False
+    allowed_dept_ids = set()
+
+    for access in admin_accesses:
+        if access.role.vcode == 'SA':
+            is_global = True
+            break
+        elif access.role.vcode == 'ADM':
+            if access.nid_department:
+                allowed_dept_ids.add(access.nid_department)
+
+    # 2. Build Base Query (SELECT Facility DAN Files)
+    # Kita select dua-duanya biar bisa di-unpacking nanti (facility_obj, file_obj)
+    query = db.query(models.Facility, filesModel.Files).outerjoin(
+        filesModel.Files, models.Facility.nid_file == filesModel.Files.nid
     )
-    
+
+    # 3. Apply Scope Filter
+    if not is_global:
+        if not allowed_dept_ids:
+            return {"data": [], "total": 0}
+        
+        # Join ke relasi Lab -> Dept buat filter
+        query = query.join(
+            labFacilityModel.LabFacility,
+            models.Facility.nid == labFacilityModel.LabFacility.nid_facility
+        ).join(
+            labModel.Lab,
+            labFacilityModel.LabFacility.nid_lab == labModel.Lab.nid
+        ).join(
+            departmentLabModel.DepartmentLab,
+            labModel.Lab.nid == departmentLabModel.DepartmentLab.nid_lab
+        ).filter(
+            departmentLabModel.DepartmentLab.nid_department.in_(allowed_dept_ids),
+            departmentLabModel.DepartmentLab.nstatus == 1,
+            labFacilityModel.LabFacility.nstatus == 1
+        ).distinct()
+
+    # 4. Filter Pencarian
     if search:
         search_filter = or_(
             models.Facility.vname.ilike(f"%{search}%"),
             models.Facility.vcode.ilike(f"%{search}%"),
-            models.Facility.vdesc.ilike(f"%{search}%"),
-            filesModel.Files.vname.ilike(f"%{search}%")
+            models.Facility.vdesc.ilike(f"%{search}%")
         )
         query = query.filter(search_filter)
 
-    if vname: query = query.filter(models.Facility.vname.ilike(f"%{vname}%"))
-    if vcode: query = query.filter(models.Facility.vcode.ilike(f"%{vcode}%"))
-    if vdesc: query = query.filter(models.Facility.vdesc.ilike(f"%{vdesc}%"))
-    if nstatus is not None: query = query.filter(models.Facility.nstatus == nstatus)
+    if vname:
+        query = query.filter(models.Facility.vname.ilike(f"%{vname}%"))
+    if vcode:
+        query = query.filter(models.Facility.vcode.ilike(f"%{vcode}%"))
+    if vdesc:
+        query = query.filter(models.Facility.vdesc.ilike(f"%{vdesc}%"))
+    if nstatus is not None:
+        query = query.filter(models.Facility.nstatus == nstatus)
 
+    # 5. Pagination & Formatting
     total = query.count()
-    
-    query = query.order_by(desc(models.Facility.dsort_at))
-    
+    query = query.order_by(models.Facility.dsort_at.desc())
     results = query.offset(skip).limit(limit).all()
 
+    # --- [INI LOGIC YANG KEMARIN HILANG] ---
     data = []
     for facility_obj, file_obj in results:
+        # Manual mapping biar Schema Pydantic seneng
         if file_obj:
             facility_obj.related_file = file_obj 
         else:
             facility_obj.related_file = None 
         data.append(facility_obj)
+    # ---------------------------------------
 
     return {"data": data, "total": total}
 
@@ -262,4 +313,82 @@ def get_all_facilities_for_dropdown(db: Session):
         {"nid": nid, "vname": f"{vname}"}
         for nid, vname, vcode in results
     ]
+    return {"data": data}
+
+def get_scoped_facilities_for_dropdown(db: Session, current_user: usersSchema.User):
+    """
+    [SCOPED] Mengambil SEMUA Facility (Active/Inactive) sesuai Scope Admin.
+    """
+    return _get_facilities_by_scope_logic(db, current_user, only_active=False)
+
+def get_scoped_active_facilities_for_dropdown(db: Session, current_user: usersSchema.User):
+    """
+    [SCOPED] Mengambil Facility AKTIF saja sesuai Scope Admin.
+    """
+    return _get_facilities_by_scope_logic(db, current_user, only_active=True)
+
+
+# --- Helper Internal Logic ---
+def _get_facilities_by_scope_logic(db: Session, current_user: usersSchema.User, only_active: bool):
+    # 1. Cek Scope User
+    admin_accesses = db.query(userAccessModel.UserAccess).join(
+        rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+    ).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+
+    is_global = False
+    allowed_dept_ids = set()
+
+    for access in admin_accesses:
+        if access.role.vcode == 'SA':
+            is_global = True
+            break
+        elif access.role.vcode == 'ADM':
+            if access.nid_department:
+                allowed_dept_ids.add(access.nid_department)
+
+    # 2. Build Base Query (Select specific columns for dropdown)
+    query = db.query(
+        models.Facility.nid,
+        models.Facility.vname,
+        models.Facility.vcode
+    )
+    
+    if only_active:
+        query = query.filter(models.Facility.nstatus == 1)
+
+    # 3. Apply Filter Scope (Jika BUKAN SA)
+    if not is_global:
+        if not allowed_dept_ids:
+            # Admin tanpa departemen = return kosong
+            return {"data": []}
+
+        # Join Berantai: Facility -> LabFacility -> Lab -> DepartmentLab
+        query = query.join(
+            labFacilityModel.LabFacility,
+            models.Facility.nid == labFacilityModel.LabFacility.nid_facility
+        ).join(
+            labModel.Lab,
+            labFacilityModel.LabFacility.nid_lab == labModel.Lab.nid
+        ).join(
+            departmentLabModel.DepartmentLab,
+            labModel.Lab.nid == departmentLabModel.DepartmentLab.nid_lab
+        ).filter(
+            departmentLabModel.DepartmentLab.nid_department.in_(allowed_dept_ids),
+            departmentLabModel.DepartmentLab.nstatus == 1,
+            labFacilityModel.LabFacility.nstatus == 1
+        ).distinct()
+
+    # 4. Order & Return
+    query = query.order_by(models.Facility.vname.asc())
+    results = query.all()
+    
+    # Format data sesuai schema dropdown
+    data = [
+        {"nid": nid, "vname": vname, "vcode": vcode}
+        for nid, vname, vcode in results
+    ]
+    
     return {"data": data}

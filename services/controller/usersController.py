@@ -16,7 +16,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt # type: ignore
 # OAuth2PasswordBearer gak dipake lagi buat get user, tapi mungkin masih perlu kalo ada endpoint lain yg pake
 # from fastapi.security import OAuth2PasswordBearer
-
+from sqlalchemy.orm import aliased
 from ..models import usersModel as models
 from ..models import tokenModel
 from ..schemas import usersSchema as schema
@@ -1186,9 +1186,47 @@ def get_user_by_email(db: Session, email: str):
 def get_user(db: Session, user_id: int):
     return db.query(models.User).filter(models.User.nid == user_id).first()
 
+def get_admin_scope(db: Session, current_user: models.User):
+    """
+    Menentukan scope akses admin.
+    Return:
+        - is_global (bool): True jika SA
+        - allowed_dept_ids (list[int]): List ID departemen yang boleh diakses (jika ADM)
+    """
+    # Ambil semua akses aktif user ini
+    user_accesses = db.query(userAccessModel.UserAccess).join(
+        rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+    ).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+
+    is_global = False
+    allowed_dept_ids = set()
+
+    for access in user_accesses:
+        role_code = access.role.vcode
+        if role_code == 'SA':
+            is_global = True
+            break # Kalau udah SA, gak perlu cek yang lain, dia dewa
+        elif role_code == 'ADM':
+            if access.nid_department:
+                allowed_dept_ids.add(access.nid_department)
+
+    if not is_global and not allowed_dept_ids:
+        # Kalau bukan SA dan gak punya departemen yang dikelola sebagai ADM
+        # (atau role-nya cuma PIC/VSTR)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak memiliki hak akses Admin atau Superadmin yang valid."
+        )
+
+    return is_global, list(allowed_dept_ids)
+
 # --- Fungsi Get List Users ---
 def get_users(
     db: Session,
+    current_user: models.User, 
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,
@@ -1197,7 +1235,32 @@ def get_users(
     vemail: str | None = None,
     vcode: str | None = None,
 ):
+    # 1. Tentukan Scope
+    is_global, allowed_dept_ids = get_admin_scope(db, current_user)
+
+    # 2. Build Base Query
     query = db.query(models.User)
+
+    # 3. Apply Context-Aware Filtering
+    if not is_global:
+        # CASE: Admin Departemen (ADM)
+        # Logic: Hanya tampilkan user yang punya role VSTR/PIC di departemen yang dikelola Admin
+        
+        # Join ke UserAccess dan Role untuk filter target user
+        query = query.join(
+            userAccessModel.UserAccess, models.User.nid == userAccessModel.UserAccess.nid_user
+        ).join(
+            rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+        ).filter(
+            # Filter 1: Target user harus ada di departemen si Admin
+            userAccessModel.UserAccess.nid_department.in_(allowed_dept_ids),
+            # Filter 2: Target user role-nya harus VSTR atau PIC
+            rolesModel.Role.vcode.in_(['VSTR', 'PIC']),
+            # Filter 3: Akses target user harus aktif
+            userAccessModel.UserAccess.nstatus == 1
+        ).distinct() # Penting! Biar user gak muncul dobel kalau punya multiple roles di dept sama
+    
+    # --- Filter Standar (Search, dll) tetap jalan seperti biasa ---
     if search:
         search_filter = or_(
             models.User.vname.ilike(f"%{search}%"),
@@ -1206,7 +1269,6 @@ def get_users(
         )
         query = query.filter(search_filter)
 
-    # Filter spesifik (case-insensitive)
     if vname:
         query = query.filter(models.User.vname.ilike(f"%{vname}%"))
     if vemail:
@@ -1214,19 +1276,15 @@ def get_users(
     if vcode:
         query = query.filter(models.User.vcode.ilike(f"%{vcode}%"))
 
-    # Filter status
     if nstatus is not None:
-        # Validasi nstatus jika perlu (misal pastikan antara 0-3)
         if nstatus in [0, 1, 2, 3]:
             query = query.filter(models.User.nstatus == nstatus)
-        else:
-             print(f"Warning: Invalid nstatus filter value: {nstatus}. Ignoring filter.")
 
-
-    total = query.count() # Hitung total sebelum limit/offset
-    # Urutkan berdasarkan timestamp sortir terbaru
+    # Sorting & Pagination
+    total = query.count()
     query = query.order_by(models.User.dsort_at.desc())
     data = query.offset(skip).limit(limit).all()
+    
     return {"data": data, "total": total}
 
 # --- Fungsi Delete User (Soft Delete ---
@@ -1548,3 +1606,72 @@ def reset_password(db: Session, password_data: schema.ResetPassword, request: Re
 
     print(f"✅ Password for user {user.vemail} (ID: {user.nid}) has been successfully reset.")
     return user
+
+def get_scoped_users_for_dropdown(db: Session, current_user: models.User):
+    """
+    [SCOPED] Mengambil SEMUA user (Active/Inactive) sesuai Scope Admin.
+    """
+    return _get_users_by_scope_logic(db, current_user, only_active=False)
+
+def get_scoped_active_users_for_dropdown(db: Session, current_user: models.User):
+    """
+    [SCOPED] Mengambil user AKTIF saja sesuai Scope Admin.
+    Biasanya dipake buat dropdown 'Add User to Lab'.
+    """
+    return _get_users_by_scope_logic(db, current_user, only_active=True)
+
+
+# --- Helper Internal Logic ---
+def _get_users_by_scope_logic(db: Session, current_user: models.User, only_active: bool):
+    # 1. Cek Scope User (SA atau ADM Dept mana?)
+    admin_accesses = db.query(userAccessModel.UserAccess).join(
+        rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+    ).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+
+    is_global = False
+    allowed_dept_ids = set()
+
+    for access in admin_accesses:
+        if access.role.vcode == 'SA':
+            is_global = True
+            break
+        elif access.role.vcode == 'ADM':
+            if access.nid_department:
+                allowed_dept_ids.add(access.nid_department)
+
+    # 2. Build Base Query
+    query = db.query(models.User)
+    
+    if only_active:
+        query = query.filter(models.User.nstatus == 1)
+
+    # 3. Apply Filter Scope (Jika BUKAN SA)
+    if not is_global:
+        if not allowed_dept_ids:
+            # Admin tanpa departemen = return kosong
+            return {"data": []}
+
+        # Join ke UserAccess -> Filter user yang terdaftar di departemen si Admin
+        query = query.join(
+            userAccessModel.UserAccess, models.User.nid == userAccessModel.UserAccess.nid_user
+        ).join(
+            rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+        ).filter(
+            # Filter 1: User harus punya akses di departemen Admin
+            userAccessModel.UserAccess.nid_department.in_(allowed_dept_ids),
+            
+            # Filter 2 (Blacklist): Jangan tampilkan SA & ADM lain
+            rolesModel.Role.vcode.notin_(['SA', 'ADM']),
+            
+            # Filter 3: Akses user-nya harus aktif
+            userAccessModel.UserAccess.nstatus == 1
+        ).distinct()
+
+    # 4. Order & Return
+    query = query.order_by(models.User.vname.asc())
+    data = query.all()
+    
+    return {"data": data}

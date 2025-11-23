@@ -56,8 +56,15 @@ def read_all_user_access(
     check_forbidden_roles(db, current_user)
     
     user_access_data = userAccessController.get_user_access(
-        db=db, skip=skip, limit=limit, search=search, nstatus=status,nid_role=nid_role,
-        nid_user=nid_user, nid_department=nid_department, 
+        db=db, 
+        current_user=current_user, 
+        skip=skip, 
+        limit=limit, 
+        search=search, 
+        nstatus=status,
+        nid_role=nid_role,
+        nid_user=nid_user, 
+        nid_department=nid_department, 
         nid_lab=nid_lab,
         vcode=mappingCode
     )

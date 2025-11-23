@@ -4,6 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import rolesModel as models
 from ..schemas import rolesSchema as schema, usersSchema
+from ..models import userAccessModel
 
 import pytz
 
@@ -185,3 +186,49 @@ def get_all_roles_for_dropdown(db: Session):
         .all()
     )
     return {"data": roles}
+
+def get_scoped_roles_for_dropdown(db: Session, current_user: usersSchema.User):
+    """
+    [SCOPED] Mengambil SEMUA role (Active/Inactive) dengan filter logic:
+    - SA: All
+    - ADM: Only VSTR & PIC
+    """
+    return _get_roles_by_scope_logic(db, current_user, only_active=False)
+
+def get_scoped_active_roles_for_dropdown(db: Session, current_user: usersSchema.User):
+    """
+    [SCOPED] Mengambil role AKTIF saja dengan filter logic:
+    - SA: All Active
+    - ADM: Only Active VSTR & PIC
+    """
+    return _get_roles_by_scope_logic(db, current_user, only_active=True)
+
+
+# --- Helper Internal Logic ---
+def _get_roles_by_scope_logic(db: Session, current_user: usersSchema.User, only_active: bool):
+    # 1. Cek apakah user adalah SA (Superadmin)
+    is_sa = db.query(userAccessModel.UserAccess).join(
+        models.Role, userAccessModel.UserAccess.nid_role == models.Role.nid
+    ).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        models.Role.vcode == 'SA',
+        userAccessModel.UserAccess.nstatus == 1 # Pastikan akses SA-nya aktif
+    ).first()
+
+    # 2. Base Query
+    query = db.query(models.Role)
+    
+    # Filter Active Only jika diminta
+    if only_active:
+        query = query.filter(models.Role.nstatus == 1)
+
+    # 3. Apply Scope Filter (Jika BUKAN SA)
+    if not is_sa:
+        # Logic Admin: Hanya boleh lihat role 'Visitor' dan 'PIC'
+        query = query.filter(models.Role.vcode.in_(['VSTR', 'PIC']))
+
+    # 4. Order & Return
+    query = query.order_by(models.Role.vname.asc())
+    data = query.all()
+    
+    return {"data": data}

@@ -4,7 +4,8 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from ..models import labFacilityModel as models
 from ..models import facilityModel, labModel 
-from ..schemas import labFacilitySchema as schema
+from ..schemas import labFacilitySchema as schema, usersSchema
+from ..models import departmentLabModel, userAccessModel, rolesModel, labModel, facilityModel
 
 import pytz
 
@@ -80,6 +81,7 @@ def update_facility_lab(db: Session, facility_lab_vcode: str, facility_lab: sche
 
 def get_facility_labs(
     db: Session,
+    current_user: usersSchema.User, 
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,
@@ -88,16 +90,50 @@ def get_facility_labs(
     nid_facility: int | None = None,
     vcode: str | None = None,
 ):
-    query = db.query(
-        models.LabFacility,
-        labModel.Lab.vname.label("lab_name"),
-        facilityModel.Facility.vname.label("facility_name")
+    # 1. LOGIC SCOPE: Cek user ini SA atau Admin Dept mana
+    admin_accesses = db.query(userAccessModel.UserAccess).join(
+        rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+    ).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+
+    is_global = False
+    allowed_dept_ids = set()
+
+    for access in admin_accesses:
+        if access.role.vcode == 'SA':
+            is_global = True
+            break
+        elif access.role.vcode == 'ADM':
+            if access.nid_department:
+                allowed_dept_ids.add(access.nid_department)
+
+    # 2. Build Base Query
+    # Kita join Lab & Facility biar bisa di-search sekalian
+    query = db.query(models.LabFacility).join(
+        labModel.Lab, models.LabFacility.nid_lab == labModel.Lab.nid
     ).join(
-        labModel.Lab, models.LabFacility.nid_lab == labModel.Lab.nid, isouter=True
-    ).join(
-        facilityModel.Facility, models.LabFacility.nid_facility == facilityModel.Facility.nid, isouter=True
+        facilityModel.Facility, models.LabFacility.nid_facility == facilityModel.Facility.nid
     )
 
+    # 3. Apply Scope Filter (Jika bukan SA)
+    if not is_global:
+        if not allowed_dept_ids:
+            # Admin tanpa departemen -> return kosong
+            return {"data": [], "total": 0}
+        
+        # Join ke DepartmentLab untuk memfilter berdasarkan departemen admin
+        # Path: LabFacility -> Lab -> DepartmentLab -> [Filter nid_department]
+        query = query.join(
+            departmentLabModel.DepartmentLab,
+            labModel.Lab.nid == departmentLabModel.DepartmentLab.nid_lab
+        ).filter(
+            departmentLabModel.DepartmentLab.nid_department.in_(allowed_dept_ids),
+            departmentLabModel.DepartmentLab.nstatus == 1
+        ).distinct()
+
+    # 4. Filter Pencarian Standar
     if search:
         search_filter = or_(
             models.LabFacility.vcode.ilike(f"%{search}%"),
@@ -105,28 +141,20 @@ def get_facility_labs(
             facilityModel.Facility.vname.ilike(f"%{search}%")
         )
         query = query.filter(search_filter)
-        
-        
-    if nstatus is not None:
-        query = query.filter(models.LabFacility.nstatus == nstatus)
+
     if nid_lab is not None:
         query = query.filter(models.LabFacility.nid_lab == nid_lab)
-    if nid_facility is not None: 
+    if nid_facility is not None:
         query = query.filter(models.LabFacility.nid_facility == nid_facility)
     if vcode:
         query = query.filter(models.LabFacility.vcode.ilike(f"%{vcode}%"))
+    if nstatus is not None:
+        query = query.filter(models.LabFacility.nstatus == nstatus)
 
+    # 5. Pagination & Return
     total = query.count()
     query = query.order_by(models.LabFacility.dsort_at.desc())
-    
-    results = query.offset(skip).limit(limit).all()
-    
-    data = []
-    for mapping, lab_name, facility_name in results:
-        mapping_data = mapping.__dict__
-        mapping_data['lab_name'] = lab_name or '(Name Not Found)'
-        mapping_data['facility_name'] = facility_name or '(Name Not Found)'
-        data.append(mapping_data)
+    data = query.offset(skip).limit(limit).all()
 
     return {"data": data, "total": total}
 

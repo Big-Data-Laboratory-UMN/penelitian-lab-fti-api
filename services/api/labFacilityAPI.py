@@ -38,6 +38,14 @@ def check_forbidden_roles(db: Session, current_user: usersSchema.User):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak punya hak akses untuk operasi ini."
         )
+        
+def check_adm_sa_only(db: Session, current_user: usersSchema.User):
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    if "PIC" in user_roles or "VSTR" in user_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak punya hak akses untuk operasi ini."
+        )
 
 @router.get("/", response_model=schema.FacilityLabResponse)
 def read_all_facility_labs(
@@ -51,17 +59,17 @@ def read_all_facility_labs(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     facility_labs_data = labFacilityController.get_facility_labs(
         db=db, skip=skip, limit=limit, search=search, nstatus=status,nid_lab=nid_lab,
         nid_facility=nid_facility,
-        vcode=mappingCode
+        vcode=mappingCode, current_user=current_user,
     )
     return facility_labs_data
 
 @router.get("/{facility_lab_id}", response_model=schema.FacilityLab)
 def get_facility_lab_by_id(facility_lab_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     facility_lab = labFacilityController.get_facility_lab(db=db, facility_lab_id=facility_lab_id)
     if facility_lab is None:
         raise HTTPException(status_code=404, detail="Facility Lab assignment not found")
@@ -75,7 +83,7 @@ def create_new_facility_lab(
     db: Session = Depends(get_db), 
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     try:
         facility_lab.vcreated_by = current_user.vcode
         
@@ -109,7 +117,7 @@ def update_existing_facility_lab(
     db: Session = Depends(get_db), 
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     
     # --- AMBIL DATA SEBELUM UPDATE ---
     db_facility_lab_before = labFacilityController.get_facility_lab_by_code(db, vcode=facility_lab_vcode) #
@@ -155,7 +163,7 @@ def soft_delete_facility_lab(
     db: Session = Depends(get_db), 
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     
     # --- AMBIL DATA SEBELUM DELETE ---
     db_facility_lab_before = labFacilityController.get_facility_lab_by_code(db, vcode=facility_lab_vcode) #
@@ -193,7 +201,7 @@ def soft_delete_facility_lab(
 
 @router.get("/all-for-dropdown/", response_model=schema.FacilityLabDropdownResponse)
 def read_all_facility_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    check_forbidden_roles(db, current_user)
+    check_adm_sa_only(db, current_user)
     facility_labs_data = labFacilityController.get_all_facility_labs_for_dropdown(db=db)
     return facility_labs_data
 

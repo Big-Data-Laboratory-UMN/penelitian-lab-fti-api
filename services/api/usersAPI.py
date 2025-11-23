@@ -9,6 +9,9 @@ from ..schemas.usersSchema import UserRegister, ActivationToken,  RequestPasswor
 from ..controller import usersController
 from ..models import usersModel as models
 from ..database import SessionLocal # Import SessionLocal untuk db_factory
+import uuid
+from ..schemas import userAccessSchema      # Pastikan ini ada
+from ..models import userAccessModel, rolesModel # Buat query scope & role ID
 
 from utils.token_refresh import RefreshConfig, refresh_access_cookie
 
@@ -213,13 +216,12 @@ async def create_user_from_admin_panel(
     current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     """Membuat user baru oleh admin (membutuhkan hak akses)."""
-    print(f"[API /admin-create] Request received from user: {current_user.vemail}")
+    # ... (Logika print & permission check existing biarkan saja) ...
+    
+    # [Existing Code] Permission Check
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    print(f"[API /admin-create] User roles: {user_roles}")
-
-    allowed_roles = {"SA"} # Sesuaikan role yg dibolehkan
+    allowed_roles = {"SA", "ADM"}
     if not any(role in allowed_roles for role in user_roles):
-        print(f"[API /admin-create] Forbidden: User {current_user.vemail} does not have required roles.")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Anda tidak punya hak akses untuk membuat pengguna baru."
@@ -227,11 +229,53 @@ async def create_user_from_admin_panel(
 
     try:
         user_data.vcreated_by = current_user.vcode
+        
+        # 1. Create User (Existing)
         new_user = await usersController.create_user_by_admin(
             db=db, user_data=user_data, request=request, app=request.app, db_factory=SessionLocal
         )
+        
+        # --- [LOGIC BARU: AUTO ASSIGN VISITOR ACCESS] ---
+        # Cek apakah Creator adalah ADMIN (ADM) dan punya Departemen
+        admin_access = db.query(userAccessModel.UserAccess).join(
+            rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
+        ).filter(
+            userAccessModel.UserAccess.nid_user == current_user.nid,
+            rolesModel.Role.vcode == 'ADM',
+            userAccessModel.UserAccess.nstatus == 1
+        ).first()
+
+        # Jika yang bikin adalah Admin Department
+        if admin_access and admin_access.nid_department:
+            print(f"[AutoAccess] Admin Dept ID {admin_access.nid_department} detected. Assigning VSTR role...")
+            
+            # Cari ID Role 'VSTR' (Visitor)
+            visitor_role = db.query(rolesModel.Role).filter(rolesModel.Role.vcode == 'VSTR').first()
+            
+            if visitor_role:
+                # Generate vcode unik untuk UserAccess
+                ua_vcode = f"UACC-{uuid.uuid4().hex[:8].upper()}"
+                
+                # Siapkan data UserAccess
+                new_access_data = userAccessSchema.UserAccessCreate(
+                    vcode=ua_vcode,
+                    nid_user=new_user.nid,       # User yang baru dibuat
+                    nid_role=visitor_role.nid,   # Role Visitor
+                    nid_department=admin_access.nid_department, # Dept si Admin
+                    nid_lab=None,                # Default kosong dulu
+                    vcreated_by=current_user.vcode
+                )
+                
+                # Create Access via Controller
+                userAccessController.create_user_access(db=db, user_access=new_access_data)
+                print(f"[AutoAccess] Success: User {new_user.vemail} assigned as VSTR in Dept {admin_access.nid_department}")
+            else:
+                print("[AutoAccess] Warning: Role 'VSTR' not found in database. Auto-assign failed.")
+        # ------------------------------------------------
+
         print(f"[API /admin-create] User {new_user.vemail} created successfully.")
         return new_user
+
     except ValueError as e:
         print(f"[API /admin-create] Failed: {str(e)}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -296,7 +340,7 @@ async def update_existing_user(
     # ----------------------------------------
 
     is_updating_self = current_user.vcode == user_vcode
-    allowed_admin_roles = {"SA"} # Sesuaikan
+    allowed_admin_roles = {"SA", 'ADM'} # Sesuaikan
     is_allowed_admin = any(role in allowed_admin_roles for role in user_roles)
 
     if not is_updating_self and not is_allowed_admin:
@@ -363,7 +407,7 @@ def soft_delete_user(
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
     print(f"[API DELETE /users/{user_vcode}] User roles: {user_roles}")
 
-    allowed_roles = {"SA"} # Sesuaikan
+    allowed_roles = {"SA", 'ADM'} # Sesuaikan
     if not any(role in allowed_roles for role in user_roles):
          print(f"[API DELETE /users/{user_vcode}] Forbidden: User {current_user.vemail} cannot delete users.")
          raise HTTPException(
@@ -434,7 +478,7 @@ def read_all_users(
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
     print(f"[API GET /users/] User roles: {user_roles}")
 
-    allowed_roles = {"SA", "ADM"} # Sesuaikan
+    allowed_roles = {"SA", "ADM"} 
     if not any(role in allowed_roles for role in user_roles):
         print(f"[API GET /users/] Forbidden: User {current_user.vemail} cannot view user list.")
         raise HTTPException(
@@ -443,9 +487,17 @@ def read_all_users(
         )
 
     users_data = usersController.get_users(
-        db=db, skip=skip, limit=limit, search=search,
-        nstatus=nstatus, vname=name, vemail=email, vcode=code
+        db=db, 
+        current_user=current_user, 
+        skip=skip, 
+        limit=limit, 
+        search=search,
+        nstatus=nstatus, 
+        vname=name, 
+        vemail=email, 
+        vcode=code
     )
+
     print(f"[API GET /users/] Returning {len(users_data['data'])} users (Total: {users_data['total']}).")
     return users_data
 
@@ -501,6 +553,37 @@ def read_all_users_for_dropdown(
     print(f"[API /all-for-dropdown/] Returning {len(users_data['data'])} active users for dropdown.")
     return users_data
 
+@router.get("/scope-all-for-dropdown/", response_model=schema.UserDropdownResponse)
+def read_scope_all_users_for_dropdown(
+    db: Session = Depends(get_db),
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    [SCOPED] Semua User (Active/Inactive) sesuai Departemen Admin.
+    """
+    # Cek hak akses
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    if not any(role in {"SA", "ADM"} for role in user_roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
+    
+    users_data = usersController.get_scoped_users_for_dropdown(db=db, current_user=current_user)
+    return users_data
+
+@router.get("/scope-active-for-dropdown/", response_model=schema.UserDropdownResponse)
+def read_scope_active_users_for_dropdown(
+    db: Session = Depends(get_db),
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    [SCOPED] User Aktif Saja sesuai Departemen Admin.
+    """
+    # Cek hak akses
+    user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    if not any(role in {"SA", "ADM"} for role in user_roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
+    
+    users_data = usersController.get_scoped_active_users_for_dropdown(db=db, current_user=current_user)
+    return users_data
 
 @router.get("/all-active-for-dropdown/", response_model=schema.UserDropdownResponse)
 def read_all_users_for_dropdown(
@@ -695,3 +778,5 @@ def reset_user_password(password_data: ResetPassword,request: Request, db: Sessi
     except Exception as e:
          print(f"[API /reset-password] Unexpected error: {e}")
          raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengatur password baru.")
+     
+     
