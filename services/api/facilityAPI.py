@@ -15,6 +15,7 @@ from ..database import SessionLocal
 import uuid
 from ..controller import labFacilityController 
 from ..schemas import labFacilitySchema
+from ..models import labModel # Added import
 from datetime import datetime
 import pytz
 
@@ -120,18 +121,24 @@ async def create_new_facility_with_file(
             try:
                 print(f"[AutoMap] Mapping Facility {new_facility.vcode} to Lab ID {nid_lab}...")
                 
-                # Generate kode unik mapping
-                mapping_vcode = f"LFA-{uuid.uuid4().hex[:8].upper()}"
-                
-                mapping_data = labFacilitySchema.FacilityLabCreate(
-                    vcode=mapping_vcode,
-                    nid_lab=nid_lab,
-                    nid_facility=new_facility.nid, # ID Facility yang baru jadi
-                    vcreated_by=current_user.vcode
-                )
-                
-                labFacilityController.create_facility_lab(db=db, facility_lab=mapping_data)
-                print(f"[AutoMap] Success mapping created.")
+                target_lab = db.query(labModel.Lab).filter(labModel.Lab.nid == nid_lab).first()
+                if not target_lab:
+                    print(f"[AutoMap Error] Lab ID {nid_lab} tidak ditemukan.")
+                else:
+                    # Generate kode unik mapping
+                    mapping_vcode = f"LFA-{uuid.uuid4().hex[:8].upper()}"
+                    
+                    mapping_data = labFacilitySchema.FacilityLabCreate(
+                        vcode=mapping_vcode,
+                        nid_lab=nid_lab,
+                        nid_facility=new_facility.nid, # ID Facility yang baru jadi
+                        vcreated_by=current_user.vcode,
+                        vcode_lab=target_lab.vcode,
+                        vcode_facility=new_facility.vcode
+                    )
+                    
+                    labFacilityController.create_facility_lab(db=db, facility_lab=mapping_data)
+                    print(f"[AutoMap] Success mapping created.")
                 
             except Exception as map_err:
                 # Kalau mapping gagal, jangan gagalin create facility-nya, tapi log errornya

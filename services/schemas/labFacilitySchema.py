@@ -9,6 +9,8 @@ class FacilityLabCreate(BaseModel):
     nid_lab: int
     nid_facility: int
     vcreated_by: str = "system"
+    vcode_lab: Optional[str] = None
+    vcode_facility: Optional[str] = None
 
 class FacilityLabUpdate(BaseModel):
     vcode: str

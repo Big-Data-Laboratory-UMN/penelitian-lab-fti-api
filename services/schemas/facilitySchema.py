@@ -13,6 +13,7 @@ class FacilityCreate(BaseModel):
     vname: str
     vdesc: str
     vcreated_by: str = "system" # Bisa di-override di API dengan user login
+    nid_lab: Optional[int] = None # [OPTIONAL] Jika diisi, otomatis mapping ke lab ini
 
 class FacilityUpdate(BaseModel):
     """

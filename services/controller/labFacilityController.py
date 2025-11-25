@@ -30,7 +30,33 @@ def get_facility_lab(db: Session, facility_lab_id: int):
     return db.query(models.LabFacility).filter(models.LabFacility.nid == facility_lab_id).first()
 
 def create_facility_lab(db: Session, facility_lab: schema.FacilityLabCreate):
-    db_facility_lab = models.LabFacility(**facility_lab.model_dump())
+    # Fetch vcode if not provided (handle manual mapping case)
+    vcode_lab = facility_lab.vcode_lab
+    vcode_facility = facility_lab.vcode_facility
+    
+    if not vcode_lab:
+        lab = db.query(labModel.Lab).filter(labModel.Lab.nid == facility_lab.nid_lab).first()
+        if lab:
+            vcode_lab = lab.vcode
+        else:
+            raise ValueError(f"Lab ID {facility_lab.nid_lab} not found.")
+            
+    if not vcode_facility:
+        fac = db.query(facilityModel.Facility).filter(facilityModel.Facility.nid == facility_lab.nid_facility).first()
+        if fac:
+            vcode_facility = fac.vcode
+        else:
+             raise ValueError(f"Facility ID {facility_lab.nid_facility} not found.")
+
+    db_facility_lab = models.LabFacility(
+        vcode=facility_lab.vcode,
+        nid_lab=facility_lab.nid_lab,
+        nid_facility=facility_lab.nid_facility,
+        vcreated_by=facility_lab.vcreated_by,
+        vcode_lab=vcode_lab,
+        vcode_facility=vcode_facility,
+        nstatus=1 # Default status for new entries
+    )
     db_facility_lab.dsort_at = now_wib()
 
     try:
