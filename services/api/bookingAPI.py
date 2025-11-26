@@ -452,7 +452,7 @@ async def cancel_booking_api(
 @router.get("/", response_model=bookingSchema.BookingResponse)
 def read_all_bookings_api(
     skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=30),
+    limit: int = Query(10, ge=1, le=100),
     vsearch: str = Query(default=""),
     status: Optional[int] = None,
     dateStart: Optional[datetime] = None,
