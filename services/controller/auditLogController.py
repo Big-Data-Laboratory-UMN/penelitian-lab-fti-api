@@ -14,10 +14,7 @@ from ..database import SessionLocal
 def now_wib():
     return datetime.now(pytz.timezone("Asia/Jakarta"))
 
-# =========================================
-# WRITE OPERATIONS (Tetap Sama)
-# =========================================
-# (Fungsi create_security_log & create_activity_log_task tidak berubah)
+
 def create_security_log(db: Session, nid_user: int | None, action: str, request: Request | None = None, details: str | None = None):
     vip = request.client.host if request else None
     user_agent = request.headers.get("user-agent") if request else None
@@ -36,9 +33,6 @@ def create_activity_log_task(nid_user: int, action: str, target_model: str, targ
     finally:
         db.close()
 
-# =========================================
-# READ OPERATIONS (DETAIL BY ID - INI YANG BARU)
-# =========================================
 
 def get_activity_log_by_id(db: Session, log_id: int):
     """
@@ -94,10 +88,6 @@ def get_security_log_by_id(db: Session, log_id: int):
         "vdetails": log.vdetails,
         "dtimestamp": log.dtimestamp
     }
-
-# =========================================
-# READ OPERATIONS (LIST - TETAP SAMA)
-# =========================================
 
 def get_activity_logs(db: Session, page: int = 1, limit: int = 10, search: Optional[str] = None, module: Optional[str] = None, action: Optional[str] = None, start_date: Optional[date] = None, end_date: Optional[date] = None):
     query = db.query(activityLogModel.ActivityLog).outerjoin(usersModel.User, activityLogModel.ActivityLog.nid_user == usersModel.User.nid)
@@ -169,7 +159,6 @@ def get_security_logs(db: Session, page: int = 1, limit: int = 10, search: Optio
 
     return {"data": results, "total": total, "page": page, "limit": limit}
 
-# (Sisanya fungsi stats dan distribution sama persis, tidak perlu diulang)
 def _get_stats_by_date_range(db: Session, start_date: date, end_date: date):
     act_query = db.query(activityLogModel.ActivityLog).filter(func.date(activityLogModel.ActivityLog.dtimestamp) >= start_date, func.date(activityLogModel.ActivityLog.dtimestamp) <= end_date)
     sec_query = db.query(securityLogModel.SecurityLog).filter(func.date(securityLogModel.SecurityLog.dtimestamp) >= start_date, func.date(securityLogModel.SecurityLog.dtimestamp) <= end_date)
