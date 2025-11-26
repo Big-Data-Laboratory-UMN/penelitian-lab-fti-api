@@ -1,12 +1,13 @@
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import desc, func, or_
-from fastapi import Request, HTTPException, status # Tambah HTTPException
+from fastapi import Request, HTTPException, status
 from datetime import datetime, date, timedelta
 import pytz
 from typing import Optional
 
 # Import models
-from ..models import securityLogModel, activityLogModel, usersModel
+# Import models
+from ..models import securityLogModel, activityLogModel, usersModel, bookingModel, labFacilityModel, labModel, departmentLabModel, userAccessModel, rolesModel, facilityModel
 
 # Import database session buat background task
 from ..database import SessionLocal 
@@ -129,17 +130,174 @@ def get_activity_logs(db: Session, page: int = 1, limit: int = 10, search: Optio
 
     return {"data": results, "total": total, "page": page, "limit": limit}
 
+def _get_booking_logs_since(db: Session, start_time: datetime, current_user: usersModel.User):
+    """
+    Helper untuk ambil activity log Booking sejak waktu tertentu dengan SCOPING.
+    """
+    # 1. Base Query: Join ke Booking -> LabFacility -> Lab -> Facility
+    query = db.query(activityLogModel.ActivityLog).join(
+        bookingModel.Booking, activityLogModel.ActivityLog.vtarget_identifier == bookingModel.Booking.vcode
+    ).join(
+        labFacilityModel.LabFacility, bookingModel.Booking.nid_lab_facility == labFacilityModel.LabFacility.nid
+    ).join(
+        labModel.Lab, labFacilityModel.LabFacility.nid_lab == labModel.Lab.nid
+    ).join(
+        facilityModel.Facility, labFacilityModel.LabFacility.nid_facility == facilityModel.Facility.nid
+    ).outerjoin(
+        usersModel.User, activityLogModel.ActivityLog.nid_user == usersModel.User.nid
+    )
+    
+    # 2. Filter Waktu & Module
+    query = query.filter(
+        activityLogModel.ActivityLog.vtarget_model == 'Booking',
+        activityLogModel.ActivityLog.dtimestamp >= start_time
+    )
+
+    # 3. SCOPING LOGIC
+    # Ambil semua role & akses user saat ini
+    user_accesses = db.query(userAccessModel.UserAccess).join(rolesModel.Role).filter(
+        userAccessModel.UserAccess.nid_user == current_user.nid,
+        userAccessModel.UserAccess.nstatus == 1
+    ).all()
+
+    is_sa = False
+    allowed_lab_ids = set()
+
+    for access in user_accesses:
+        role_code = access.role.vcode
+        if role_code == 'SA':
+            is_sa = True
+            break # SA bisa lihat semua, gak perlu cek yg lain
+        elif role_code == 'PIC':
+            if access.nid_lab:
+                allowed_lab_ids.add(access.nid_lab)
+        elif role_code == 'ADM':
+            if access.nid_department:
+                # Ambil semua lab di department ini
+                dept_labs = db.query(departmentLabModel.DepartmentLab.nid_lab).filter(
+                    departmentLabModel.DepartmentLab.nid_department == access.nid_department,
+                    departmentLabModel.DepartmentLab.nstatus == 1
+                ).all()
+                for (lab_id,) in dept_labs:
+                    allowed_lab_ids.add(lab_id)
+
+    if not is_sa:
+        if not allowed_lab_ids:
+            # User gak punya akses ke lab manapun (misal user biasa/visitor yg nyasar)
+            return {"data": [], "total": 0}
+        
+        # Filter query berdasarkan allowed_lab_ids
+        query = query.filter(labModel.Lab.nid.in_(allowed_lab_ids))
+    
+    # 4. Execute
+    # Eager load booking -> lab_facility -> facility untuk akses vname
+    logs = query.options(
+        joinedload(activityLogModel.ActivityLog.user)
+    ).order_by(desc(activityLogModel.ActivityLog.dtimestamp)).all()
+
+    results = []
+    for log in logs:
+        user_obj = log.user
+        role_name = "Unknown"
+        if user_obj and hasattr(user_obj, 'user_access_rel') and user_obj.user_access_rel:
+             active_access = next((ua for ua in user_obj.user_access_rel if ua.nstatus == 1), None)
+             if active_access and active_access.role:
+                 role_name = active_access.role.vname
+        
+        # Ambil facility name dari relasi Booking
+        # Note: Kita query manual atau pake relasi yang ada.
+        # Karena kita sudah join di query utama, kita bisa akses via relasi kalau sudah didefinisikan di model.
+        # Tapi ActivityLog tidak punya relasi langsung ke Booking secara ORM (cuma vtarget_identifier).
+        # Jadi kita harus ambil dari query result atau query ulang.
+        # Cara paling efisien: Modifikasi query untuk select columns yang dibutuhkan atau eager load via join manual.
+        # Tapi karena struktur ActivityLog generic, relasi ke Booking gak standard.
+        # Workaround: Ambil Booking berdasarkan vcode (vtarget_identifier)
+        
+        # Optimization: Karena kita sudah join di query utama, kita bisa select entity Booking juga.
+        # Tapi return type function ini diharapkan list of dict sesuai schema.
+        
+        # Let's use a simple lookup for now since we are iterating.
+        # Or better, fetch the booking object inside the loop? No, N+1 problem.
+        
+        # Best approach given current architecture:
+        # Since we filtered by join, the logs are correct.
+        # To get facility name efficiently without changing ActivityLog model:
+        # We can query (ActivityLog, Facility.vname) tuple.
+        pass
+
+    # RE-WRITE QUERY TO SELECT TUPLE (Log, FacilityName)
+    # Ini lebih efisien daripada N+1
+    
+    results_tuple = db.query(activityLogModel.ActivityLog, facilityModel.Facility.vname).join(
+        bookingModel.Booking, activityLogModel.ActivityLog.vtarget_identifier == bookingModel.Booking.vcode
+    ).join(
+        labFacilityModel.LabFacility, bookingModel.Booking.nid_lab_facility == labFacilityModel.LabFacility.nid
+    ).join(
+        labModel.Lab, labFacilityModel.LabFacility.nid_lab == labModel.Lab.nid
+    ).join(
+        facilityModel.Facility, labFacilityModel.LabFacility.nid_facility == facilityModel.Facility.nid
+    ).outerjoin(
+        usersModel.User, activityLogModel.ActivityLog.nid_user == usersModel.User.nid
+    ).filter(
+        activityLogModel.ActivityLog.vtarget_model == 'Booking',
+        activityLogModel.ActivityLog.dtimestamp >= start_time
+    )
+
+    if not is_sa:
+        if not allowed_lab_ids:
+             return {"data": [], "total": 0}
+        results_tuple = results_tuple.filter(labModel.Lab.nid.in_(allowed_lab_ids))
+
+    logs_with_facility = results_tuple.order_by(desc(activityLogModel.ActivityLog.dtimestamp)).all()
+
+    results = []
+    for log, facility_name in logs_with_facility:
+        user_obj = log.user
+        role_name = "Unknown"
+        if user_obj and hasattr(user_obj, 'user_access_rel') and user_obj.user_access_rel:
+             active_access = next((ua for ua in user_obj.user_access_rel if ua.nstatus == 1), None)
+             if active_access and active_access.role:
+                 role_name = active_access.role.vname
+
+        results.append({
+            "nid": log.nid,
+            "actor_name": user_obj.vname if user_obj else "System",
+            "actor_email": user_obj.vemail if user_obj else "system@app",
+            "actor_role": role_name,
+            "facility_name": facility_name, # Added field
+            "vaction": log.vaction,
+            "vtarget_model": log.vtarget_model,
+            "vtarget_identifier": log.vtarget_identifier,
+            "jbefore": log.jbefore,
+            "jafter": log.jafter,
+            "vip_address": log.vip_address,
+            "dtimestamp": log.dtimestamp
+        })
+
+
+    return {"data": results, "total": len(results)}
+
+def get_booking_activity_logs_24h(db: Session, current_user: usersModel.User):
+    """Last 24 Hours"""
+    start_time = now_wib() - timedelta(hours=24)
+    return _get_booking_logs_since(db, start_time, current_user)
+
+def get_booking_activity_logs_7days(db: Session, current_user: usersModel.User):
+    """Last 7 Days"""
+    start_time = now_wib() - timedelta(days=7)
+    return _get_booking_logs_since(db, start_time, current_user)
+
+def get_booking_activity_logs_30days(db: Session, current_user: usersModel.User):
+    """Last 30 Days"""
+    start_time = now_wib() - timedelta(days=30)
+    return _get_booking_logs_since(db, start_time, current_user)
+
 def get_security_logs(db: Session, page: int = 1, limit: int = 10, search: Optional[str] = None, event: Optional[str] = None, start_date: Optional[date] = None, end_date: Optional[date] = None, actor_id: Optional[int] = None):
     query = db.query(securityLogModel.SecurityLog).outerjoin(usersModel.User, securityLogModel.SecurityLog.nid_user == usersModel.User.nid)
 
     if search:
         search_fmt = f"%{search}%"
         query = query.filter(or_(usersModel.User.vname.ilike(search_fmt), usersModel.User.vemail.ilike(search_fmt), securityLogModel.SecurityLog.vip_address.ilike(search_fmt), securityLogModel.SecurityLog.vaction.ilike(search_fmt)))
-
-    if event: query = query.filter(securityLogModel.SecurityLog.vaction.ilike(f"%{event}%"))
-    if start_date: query = query.filter(func.date(securityLogModel.SecurityLog.dtimestamp) >= start_date)
-    if end_date: query = query.filter(func.date(securityLogModel.SecurityLog.dtimestamp) <= end_date)
-    if actor_id: query = query.filter(securityLogModel.SecurityLog.nid_user == actor_id)
 
     total = query.count()
     logs = query.order_by(desc(securityLogModel.SecurityLog.dtimestamp)).offset((page - 1) * limit).limit(limit).all()

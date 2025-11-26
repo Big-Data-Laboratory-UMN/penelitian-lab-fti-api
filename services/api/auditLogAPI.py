@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, HTTPException, Path # Import Path
+from fastapi import APIRouter, Depends, Query, HTTPException, Path
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import date
@@ -28,6 +28,18 @@ def check_sa_access(db: Session, user: usersSchema.User):
     
     if not user_access:
         raise HTTPException(status_code=403, detail="Access Denied: Dashboard Audit Log restricted to Superadmins only.")
+
+def check_non_visitor_access(db: Session, user: usersSchema.User):
+    # Cek apakah user punya role selain VISITOR yang aktif
+    user_access = db.query(userAccessModel.UserAccess).join(rolesModel.Role)\
+        .filter(
+            userAccessModel.UserAccess.nid_user == user.nid,
+            rolesModel.Role.vcode != 'VISITOR', 
+            userAccessModel.UserAccess.nstatus == 1
+        ).first()
+    
+    if not user_access:
+        raise HTTPException(status_code=403, detail="Access Denied: Restricted to Non-Visitor users.")
 
 # ==========================================
 # ENDPOINTS
@@ -62,6 +74,39 @@ def read_activity_log_detail_api(
     check_sa_access(db, current_user)
     return auditLogController.get_activity_log_by_id(db=db, log_id=log_id)
 
+# --- LIST BOOKING ACTIVITY LOGS (TIME RANGES) ---
+@router.get("/activity/booking/24h", response_model=auditLogSchema.BookingActivityLogListResponse)
+def read_booking_activity_logs_24h_api(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    Ambil activity log Booking 24 jam terakhir.
+    """
+    check_non_visitor_access(db, current_user)
+    return auditLogController.get_booking_activity_logs_24h(db=db, current_user=current_user)
+
+@router.get("/activity/booking/7days", response_model=auditLogSchema.BookingActivityLogListResponse)
+def read_booking_activity_logs_7days_api(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    Ambil activity log Booking 7 hari terakhir.
+    """
+    check_non_visitor_access(db, current_user)
+    return auditLogController.get_booking_activity_logs_7days(db=db, current_user=current_user)
+
+@router.get("/activity/booking/30days", response_model=auditLogSchema.BookingActivityLogListResponse)
+def read_booking_activity_logs_30days_api(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    """
+    Ambil activity log Booking 30 hari terakhir.
+    """
+    check_non_visitor_access(db, current_user)
+    return auditLogController.get_booking_activity_logs_30days(db=db, current_user=current_user)
 
 # --- LIST SECURITY LOGS ---
 @router.get("/security", response_model=auditLogSchema.PaginatedSecurityLog)

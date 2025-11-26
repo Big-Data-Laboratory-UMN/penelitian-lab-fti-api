@@ -215,7 +215,7 @@ def approve_booking_api(
     background_tasks.add_task(
         auditLogController.create_activity_log_task,
         nid_user=current_user.nid,
-        action="UPDATE",
+        action="UPDATE (APPROVE)",
         target_model="Booking",
         target_identifier=updated_booking.vcode,
         jbefore=jbefore,
@@ -271,7 +271,7 @@ def reject_booking_api(
     background_tasks.add_task(
         auditLogController.create_activity_log_task,
         nid_user=current_user.nid,
-        action="UPDATE",
+        action="UPDATE (REJECT)",
         target_model="Booking",
         target_identifier=updated_booking.vcode,
         jbefore=jbefore,
@@ -338,7 +338,7 @@ async def upload_documentation_api(
     background_tasks.add_task(
         auditLogController.create_activity_log_task,
         nid_user=current_user.nid,
-        action="UPDATE",
+        action="UPDATE (UPLOAD DOCUMENTATION)",
         target_model="Booking",
         target_identifier=updated_booking.vcode,
         jbefore=jbefore,
@@ -431,7 +431,7 @@ async def cancel_booking_api(
     background_tasks.add_task(
         auditLogController.create_activity_log_task,
         nid_user=current_user.nid,
-        action="UPDATE", 
+        action="UPDATE (CANCEL)", 
         target_model="Booking",
         target_identifier=updated_booking.vcode,
         jbefore=jbefore,
