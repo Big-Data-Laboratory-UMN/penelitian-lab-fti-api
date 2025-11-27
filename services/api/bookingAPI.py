@@ -702,9 +702,9 @@ def get_waiting_doc_count_api(
         current_user=current_user, 
         user_roles=user_roles
     )
-    
+
 @router.get("/stats/cancel-count", response_model=dict)
-def get_waiting_doc_count_api(
+def get_cancel_booking_count_api(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
@@ -716,4 +716,20 @@ def get_waiting_doc_count_api(
         db=db, 
         current_user=current_user, 
         user_roles=user_roles
+    )
+
+@router.get("/stats/oldest-waiting-doc", response_model=List[bookingSchema.BookingSchema])
+def get_oldest_waiting_doc_bookings_api(
+    limit: int = Query(3, ge=1, le=10),
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Cek akses manajemen (SA/ADM/PIC)
+    user_roles = check_management_access(db, current_user)
+    
+    return bookingController.get_oldest_waiting_doc_bookings(
+        db=db,
+        current_user=current_user,
+        user_roles=user_roles,
+        limit=limit
     )

@@ -790,19 +790,6 @@ async def notify_user_of_status_update(booking_id: int, new_status: int, reviewe
             joinedload(Booking.lab_facility).joinedload(LabFacility.lab)
         ).filter(Booking.nid == booking_id).first()
         
-        # 2. Ambil data reviewer (admin/pic)
-        db_reviewer = db.query(usersModel.User).filter(
-            usersModel.User.nid == reviewer_nid
-        ).first()
-
-        if not db_booking or not db_reviewer:
-            print(f"[Notify User] Error: Booking ID {booking_id} atau Reviewer NID {reviewer_nid} tidak ditemukan.")
-            return
-
-        booked_lab = db_booking.lab_facility.lab
-        booked_user = db_booking.user
-        
-        new_status_str = "Tidak Diketahui"
         if new_status == 1:
             new_status_str = "Disetujui"
         elif new_status == 0:
@@ -1567,6 +1554,201 @@ def get_all_bookings_no_pagination(
             func.date(Booking.dend) >= dstart
         )
     elif dstart is not None:
+        raise HTTPException(status_code=500, detail=f"Gagal menyimpan update status booking: {str(e)}")
+
+    # Kembalikan data utuh
+    return get_booking_by_id(db, db_booking.nid)
+
+from datetime import timedelta
+
+def calculate_date_ranges(filter_type: str):
+    now = now_wib()
+    
+    if filter_type == 'daily':
+        # 24 jam terakhir
+        start_current = now - timedelta(days=1)
+        end_current = now
+        # 24 jam sebelumnya
+        start_prev = start_current - timedelta(days=1)
+        end_prev = start_current
+        
+    elif filter_type == 'weekly':
+        # 7 hari terakhir
+        start_current = now - timedelta(days=7)
+        end_current = now
+        # 7 hari sebelumnya
+        start_prev = start_current - timedelta(days=7)
+        end_prev = start_current
+        
+    elif filter_type == 'monthly':
+        # 30 hari terakhir
+        start_current = now - timedelta(days=30)
+        end_current = now
+        # 30 hari sebelumnya
+        start_prev = start_current - timedelta(days=30)
+        end_prev = start_current
+
+    elif filter_type == 'yearly':
+        # 1 tahun terakhir (365 hari)
+        start_current = now - timedelta(days=365)
+        end_current = now
+        # 1 tahun sebelumnya
+        start_prev = start_current - timedelta(days=365)
+        end_prev = start_current
+
+    elif filter_type == 'all_time':
+        # All Time (Sejak tahun 2000)
+        start_current = datetime(2000, 1, 1, tzinfo=JAKARTA_TZ)
+        end_current = now
+        # Trend tidak relevan untuk All Time, set prev ke range kosong
+        start_prev = start_current
+        end_prev = start_current
+        
+    else: # Default monthly
+        start_current = now - timedelta(days=30)
+        end_current = now
+        start_prev = start_current - timedelta(days=30)
+        end_prev = start_current
+        
+    return start_current, end_current, start_prev, end_prev
+
+def get_dashboard_stats(
+    db: Session, 
+    current_user: usersModel.User, 
+    user_roles: Set[str],
+    filter_type: str = 'monthly'
+):
+    # 1. Scope Check
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    if not managed_lab_ids:
+        return {
+            "pending_count": 0,
+            "waiting_doc_count": 0,
+            "cancelled_count": 0,
+            "total_booking": {
+                "count": 0,
+                "trend_percentage": 0.0,
+                "trend_direction": "flat",
+                "previous_count": 0
+            }
+        }
+
+    # 2. Date Ranges
+    start_curr, end_curr, start_prev, end_prev = calculate_date_ranges(filter_type)
+
+    # 3. Base Query Builder
+    def count_bookings(status_list: List[int], start_dt, end_dt):
+        return db.query(Booking.nid).join(
+            LabFacility, Booking.nid_lab_facility == LabFacility.nid
+        ).filter(
+            Booking.nstatus.in_(status_list),
+            LabFacility.nid_lab.in_(managed_lab_ids),
+            Booking.dcreated_at >= start_dt,
+            Booking.dcreated_at <= end_dt
+        ).count()
+
+    # 4. Execute Queries
+    
+    # TOTAL REQUEST (All Statuses: 0, 1, 2, 3, 4, 5)
+    total_req_curr = count_bookings([0, 1, 2, 3, 4, 5], start_curr, end_curr)
+    total_req_prev = count_bookings([0, 1, 2, 3, 4, 5], start_prev, end_prev)
+
+    # Breakdown (Current Period)
+    pending = count_bookings([2], start_curr, end_curr)
+    waiting = count_bookings([4], start_curr, end_curr)
+    cancelled = count_bookings([3], start_curr, end_curr)
+    approved = count_bookings([1], start_curr, end_curr)
+    done = count_bookings([5], start_curr, end_curr)
+    rejected = count_bookings([0], start_curr, end_curr)
+
+    # 5. Calculate Trend for Total Request
+    if total_req_prev == 0:
+        if total_req_curr > 0:
+            trend_pct = 100.0
+            direction = "up"
+        else:
+            trend_pct = 0.0
+            direction = "flat"
+    else:
+        diff = total_req_curr - total_req_prev
+        trend_pct = (diff / total_req_prev) * 100.0
+        if diff > 0:
+            direction = "up"
+        elif diff < 0:
+            direction = "down"
+        else:
+            direction = "flat"
+
+    return {
+        "total_request": {
+            "count": total_req_curr,
+            "trend_percentage": round(abs(trend_pct), 1),
+            "trend_direction": direction,
+            "previous_count": total_req_prev
+        },
+        "pending_count": pending,
+        "waiting_doc_count": waiting,
+        "cancelled_count": cancelled,
+        "approved_count": approved,
+        "done_count": done,
+        "rejected_count": rejected
+    }
+
+def get_all_bookings_no_pagination(
+    db: Session,
+    current_user: usersModel.User,
+    user_roles: Set[str],
+    vsearch: str = "",
+    dstart: datetime | None = None,
+    dend: datetime | None = None,
+    nstatus: int | None = None,
+    nid_lab: int | None = None, 
+    nid_facility: int | None = None,
+):
+    # --- LOGIC FILTER (COPY-PASTE DARI get_all_bookings) ---
+    query = db.query(Booking).options(
+        joinedload(Booking.user),
+        joinedload(Booking.lab_facility).joinedload(LabFacility.lab),
+        joinedload(Booking.lab_facility).joinedload(LabFacility.facility),
+        selectinload(Booking.booking_files).joinedload(BookingFile.file)
+    )
+
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    
+    if not managed_lab_ids:
+         return [] # Return list kosong
+    
+    query = query.join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).filter(
+        LabFacility.nid_lab.in_(managed_lab_ids)
+    )
+
+    if vsearch:
+        query = query.join(Booking.user).join(labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid)
+        query = query.filter(
+            or_(
+                Booking.vcode.ilike(f"%{vsearch}%"),
+                Booking.vactivity.ilike(f"%{vsearch}%"),
+                usersModel.User.vname.ilike(f"%{vsearch}%"),
+                labModel.Lab.vname.ilike(f"%{vsearch}%"),
+            )
+        )
+
+    if nstatus is not None:
+        query = query.filter(Booking.nstatus == nstatus)
+    if nid_facility is not None:
+        query = query.filter(LabFacility.nid_facility == nid_facility)
+    if nid_lab is not None:
+        query = query.filter(LabFacility.nid_lab == nid_lab)
+    
+    # Filter tanggal (wajib ada)
+    if dstart is not None and dend is not None:
+        query = query.filter(
+            func.date(Booking.dstart) <= dend,
+            func.date(Booking.dend) >= dstart
+        )
+    elif dstart is not None:
         query = query.filter(func.date(Booking.dend) >= dstart)
     elif dend is not None:
         query = query.filter(func.date(Booking.dstart) <= dend)
@@ -1574,5 +1756,39 @@ def get_all_bookings_no_pagination(
 
     # [PERBEDAAN] Langsung .all() tanpa skip/limit/total
     results = query.order_by(Booking.dsort_at.desc()).all()
+
+    return results
+
+def get_oldest_waiting_doc_bookings(
+    db: Session,
+    current_user: usersModel.User,
+    user_roles: Set[str],
+    limit: int = 3
+):
+    """
+    Mengambil booking dengan status 'Waiting For Documentation' (4) yang paling lama (oldest).
+    Data di-scope berdasarkan role user (PIC -> Lab, Admin -> Dept, SA -> All).
+    """
+    # 1. Ambil ID Lab yang dikelola user
+    managed_lab_ids = get_managed_lab_ids(db, current_user, user_roles)
+    
+    if not managed_lab_ids:
+        return []
+
+    # 2. Query Booking
+    query = db.query(Booking).options(
+        joinedload(Booking.user),
+        joinedload(Booking.lab_facility).joinedload(LabFacility.lab),
+        joinedload(Booking.lab_facility).joinedload(LabFacility.facility),
+        selectinload(Booking.booking_files).joinedload(BookingFile.file)
+    ).join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).filter(
+        Booking.nstatus == 4, # Waiting For Documentation
+        LabFacility.nid_lab.in_(managed_lab_ids) # Scoping
+    )
+
+    # 3. Order by Created At (Oldest First) & Limit
+    results = query.order_by(Booking.dcreated_at.asc()).limit(limit).all()
 
     return results
