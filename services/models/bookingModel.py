@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, func, Text, CheckConstraint
 from sqlalchemy.orm import relationship
 from ..database import Base
 from datetime import datetime
@@ -20,7 +20,8 @@ class Booking(Base):
     vactivity = Column(Text, nullable=True)
     
     nstatus = Column(Integer, default=2, comment="0:Rejected, 1:Approved, 2:Pending, 3:Canceled, 4:WaitingForDoc, 5:Done")
-    
+    nbooking_type = Column(Integer, default=0, comment="0:Regular, 1:Maintenance")
+
     dreviewed_at = Column(DateTime, nullable=True)
     vreviewed_by = Column(String(100), nullable=True)
 
@@ -38,3 +39,14 @@ class Booking(Base):
     lab_facility = relationship("LabFacility", back_populates="bookings")
     booking_files = relationship("BookingFile", back_populates="booking", 
                                  primaryjoin="and_(Booking.nid == BookingFile.nid_booking, BookingFile.nstatus == 1)")
+
+    __table_args__ = (
+        CheckConstraint(
+            "nbooking_type IN (0, 1)",
+            name="booking_nbooking_type_check"
+        ),
+        CheckConstraint(
+            "nstatus IN (0, 1, 2, 3, 4, 5)",
+            name="booking_nstatus_check"
+        )
+    )

@@ -733,3 +733,52 @@ def get_oldest_waiting_doc_bookings_api(
         user_roles=user_roles,
         limit=limit
     )
+
+@router.post("/maintenance", response_model=dict)
+def set_booking_maintenance_api(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    nid_lab: int = Form(...),
+    nid_facility: int = Form(...),
+    dstart: datetime = Form(...),
+    dend: datetime = Form(...),
+    vactivity: str = Form(...),
+    force: bool = Form(...),
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    user_roles = check_admin_or_sa(db, current_user)
+
+    result = bookingController.set_booking_maintenance(
+        nid_lab=nid_lab,
+        nid_facility=nid_facility,
+        vactivity=vactivity,
+        dstart=dstart,
+        dend=dend,
+        force=force,
+        db=db,
+        current_user=current_user
+    )
+
+    # --- LOG ACTIVITY (BACKGROUND) ---
+    # Ambil data booking yang baru dibuat dari result
+    booking_data = result.get("booking")
+    
+    if booking_data:
+        # Karena ini create baru, jbefore = None
+        jafter = booking_data 
+        
+        background_tasks.add_task(
+            auditLogController.create_activity_log_task,
+            nid_user=current_user.nid,
+            action="CREATE (MAINTENANCE)",
+            target_model="Booking",
+            target_identifier=booking_data.get("vcode"),
+            jbefore=None,
+            jafter=jafter,
+            ip=request.client.host,
+            user_agent=request.headers.get("user-agent")
+        )
+    # ---------------------------------
+
+    return result

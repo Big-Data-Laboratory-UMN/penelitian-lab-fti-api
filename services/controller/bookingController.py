@@ -318,6 +318,17 @@ async def create_booking(db: Session, current_user: usersModel.User, request: Re
                          dstart: datetime, dend: datetime, vactivity: str, proposal_file: UploadFile):
     if dend <= dstart:
         raise HTTPException(status_code=400, detail="End date must be after start date")
+
+    # [NEW] Validation: Batas booking harian jam 17:00
+    current_time = now_wib()
+    if current_time.hour >= 17:
+        # Konversi dstart ke WIB untuk perbandingan tanggal
+        booking_start_wib = to_wib(dstart)
+        if booking_start_wib.date() <= current_time.date():
+             raise HTTPException(
+                 status_code=400, 
+                 detail="Booking untuk hari ini sudah ditutup (batas jam 17:00). Silakan lakukan booking untuk besok atau hari berikutnya."
+             )
     
     lab_facility = db.query(LabFacility).filter(
         LabFacility.nid_lab == nid_lab,
@@ -327,10 +338,6 @@ async def create_booking(db: Session, current_user: usersModel.User, request: Re
     
     if not lab_facility:
         raise HTTPException(status_code=404, detail="Kombinasi Lab dan Fasilitas tidak ditemukan atau tidak aktif")
-    
-    # lab_facility = db.query(LabFacility).get(nid_lab_facility)
-    # if not lab_facility or lab_facility.nstatus != 1:
-    #     raise HTTPException(status_code=404, detail="Lab/Facility not found or not active")
     
     nid_lab_facility = lab_facility.nid
         
@@ -1792,3 +1799,218 @@ def get_oldest_waiting_doc_bookings(
     results = query.order_by(Booking.dcreated_at.asc()).limit(limit).all()
 
     return results
+
+
+def count_maintenance_conflicts(
+    db: Session,
+    lab_facility_id: int,
+    start_date: datetime,
+    end_date: datetime
+) -> int:
+    """
+    Menghitung jumlah booking yang konflik (Approved, Pending, WaitingDoc, Done)
+    untuk keperluan pengecekan maintenance.
+    """
+
+    conflict_statuses = [1, 2]
+    
+    count = db.query(Booking).filter(
+        Booking.nid_lab_facility == lab_facility_id,
+        Booking.nstatus.in_(conflict_statuses),
+        Booking.dstart < end_date,
+        Booking.dend > start_date
+    ).count()
+    
+    return count
+
+
+def cancel_conflicting_bookings(
+    db: Session,
+    lab_facility_id: int,
+    start_date: datetime,
+    end_date: datetime,
+    current_user: usersModel.User
+) -> int:
+    """
+    Menangani booking yang konflik dengan jadwal maintenance.
+    Logic:
+    1. Full Overlap (Booking inside Maintenance) -> Cancel
+    2. Split (Maintenance inside Booking) -> Resize original + Create new booking
+    3. Overlap at End (Booking ends inside Maintenance) -> Resize end
+    4. Overlap at Start (Booking starts inside Maintenance) -> Resize start
+    """
+    conflict_statuses = [1, 2] # Approved, Pending
+    
+    # Ensure inputs are aware
+    start_date = to_wib(start_date)
+    end_date = to_wib(end_date)
+    
+    conflicting_bookings = db.query(Booking).filter(
+        Booking.nid_lab_facility == lab_facility_id,
+        Booking.nstatus.in_(conflict_statuses),
+        Booking.dstart < end_date,
+        Booking.dend > start_date
+    ).all()
+    
+    count = 0
+    for booking in conflicting_bookings:
+        b_start = to_wib(booking.dstart)
+        b_end = to_wib(booking.dend)
+        
+        # Calculate Overlap
+        overlap_start = max(b_start, start_date)
+        overlap_end = min(b_end, end_date)
+        
+        if overlap_start >= overlap_end:
+            continue # No actual overlap
+            
+        # Check if it's a full overlap
+        is_full_overlap = (b_start >= start_date and b_end <= end_date)
+        
+        if is_full_overlap:
+            # Case 1: Full Overlap -> Just cancel the original
+            booking.nstatus = 3 # Canceled
+            booking.dcanceled_at = now_wib()
+            booking.vmodified_by = current_user.vcode
+            booking.dsort_at = now_wib()
+            count += 1
+        else:
+            # Partial Overlap -> We need to handle the overlap and the remainder
+            
+            # 1. Create a Clone for the Overlapping Part (Marked as Cancelled)
+            cancel_code = generate_unique_booking_code(db)
+            cancelled_clone = Booking(
+                vcode=cancel_code,
+                nid_lab_facility=booking.nid_lab_facility,
+                nid_user=booking.nid_user,
+                dstart=overlap_start,
+                dend=overlap_end,
+                vactivity=booking.vactivity,
+                nstatus=3, # Cancelled
+                nbooking_type=booking.nbooking_type,
+                dcreated_at=now_wib(),
+                vcreated_by=current_user.vcode,
+                dcanceled_at=now_wib(),
+                dsort_at=now_wib()
+            )
+            db.add(cancelled_clone)
+            
+            # 2. Resize/Split the Original Booking
+            
+            # Case 2: Split (Booking covers before and after Maintenance)
+            if b_start < start_date and b_end > end_date:
+                # Resize Original to end at overlap start
+                booking.dend = start_date
+                booking.vmodified_by = current_user.vcode
+                booking.dsort_at = now_wib()
+                
+                # Create Clone for the remainder (after overlap end)
+                remainder_code = generate_unique_booking_code(db)
+                remainder_clone = Booking(
+                    vcode=remainder_code,
+                    nid_lab_facility=booking.nid_lab_facility,
+                    nid_user=booking.nid_user,
+                    dstart=end_date,
+                    dend=b_end,
+                    vactivity=booking.vactivity,
+                    nstatus=booking.nstatus, # Keep original status
+                    nbooking_type=booking.nbooking_type,
+                    dcreated_at=now_wib(),
+                    vcreated_by=current_user.vcode,
+                    dsort_at=now_wib()
+                )
+                db.add(remainder_clone)
+                
+            # Case 3: Overlap at End (Booking starts before, ends inside Maintenance)
+            elif b_start < start_date:
+                # Resize Original to end at overlap start
+                booking.dend = start_date
+                booking.vmodified_by = current_user.vcode
+                booking.dsort_at = now_wib()
+                
+            # Case 4: Overlap at Start (Booking starts inside, ends after Maintenance)
+            elif b_end > end_date:
+                # Resize Original to start at overlap end
+                booking.dstart = end_date
+                booking.vmodified_by = current_user.vcode
+                booking.dsort_at = now_wib()
+            
+            count += 1
+        
+    if count > 0:
+        try:
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Gagal memproses booking konflik: {str(e)}")
+            
+    return count
+
+def set_booking_maintenance(
+    nid_lab: int,
+    nid_facility: int,
+    vactivity: str,
+    dstart: datetime,
+    dend: datetime,
+    force: bool,
+    db: Session,
+    current_user: usersModel.User
+):
+    lab_facility = db.query(LabFacility).filter(
+        LabFacility.nid_lab == nid_lab,
+        LabFacility.nid_facility == nid_facility,
+        LabFacility.nstatus == 1
+    ).first()
+    
+    if not lab_facility:
+        raise HTTPException(status_code=404, detail=f"Kombinasi Lab (ID: {nid_lab}) dan Fasilitas (ID: {nid_facility}) tidak ditemukan atau tidak aktif.")
+    
+    nid_lab_facility = lab_facility.nid
+        
+    conflict_count = count_maintenance_conflicts(
+        db, lab_facility_id=nid_lab_facility,
+        start_date=dstart, end_date=dend
+    )
+    
+    if conflict_count > 0 and not force:
+        raise HTTPException(
+            status_code=409, 
+            detail=f"Booking conflict: Terdapat {conflict_count} booking yang konflik dengan jadwal maintenance ini."
+        )
+    elif conflict_count > 0 and force:
+        # Cancel conflicting bookings
+        cancelled_count = cancel_conflicting_bookings(
+            db, nid_lab_facility, dstart, dend, current_user
+        )
+        # Continue to create maintenance booking
+        
+        # Create Maintenance Booking
+        new_code = generate_unique_booking_code(db)
+        new_maintenance = Booking(
+            vcode=new_code,
+            nid_lab_facility=nid_lab_facility,
+            nid_user=current_user.nid,
+            dstart=dstart,
+            dend=dend,
+            vactivity="Maintenance: " + vactivity,
+            nstatus=1, # Approved by default for maintenance
+            nbooking_type=1, # Maintenance
+            dcreated_at=now_wib(),
+            vcreated_by=current_user.vcode
+        )
+        
+        try:
+            db.add(new_maintenance)
+            db.commit()
+            db.refresh(new_maintenance)
+        except Exception as e:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"Gagal membuat jadwal maintenance: {str(e)}")
+
+    return {
+        "message": "Jadwal maintenance berhasil dibuat.",
+        "booking": BookingSchema.model_validate(new_maintenance).model_dump(mode='json'),
+        "conflicts_resolved": conflict_count if force else 0
+    }
+
+
