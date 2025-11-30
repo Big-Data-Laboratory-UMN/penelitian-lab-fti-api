@@ -84,7 +84,7 @@ Tim Support
                 <table width="600" cellpadding="0" cellspacing="0" style="background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                     <!-- Header -->
                     <tr>
-                        <td style="background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); padding: 40px 30px; border-radius: 8px 8px 0 0;">
+                        <td style="background-color: #f97316; padding: 40px 30px; border-radius: 8px 8px 0 0;">
                             <h1 style="color: white; margin: 0; font-size: 28px; text-align: center;">
                                 Selamat Datang!
                             </h1>
@@ -101,10 +101,10 @@ Tim Support
                             
                             <div style="text-align: center; margin: 40px 0;">
                                 <a href="{activation_link}" 
-                                   style="display: inline-block; background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); 
+                                   style="display: inline-block; background-color: #f97316; 
                                           color: white; text-decoration: none; padding: 15px 40px; 
                                           border-radius: 50px; font-weight: bold; font-size: 16px;
-                                          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
+                                          box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4);">
                                     Aktivasi Akun Anda
                                 </a>
                             </div>
@@ -225,7 +225,7 @@ Tim Support
             <td align="center">
                 <table width="600" cellpadding="0" cellspacing="0" style="background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                     <tr>
-                        <td style="background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); padding: 40px 30px; border-radius: 8px 8px 0 0;">
+                        <td style="background-color: #f97316; padding: 40px 30px; border-radius: 8px 8px 0 0;">
                             <h1 style="color: white; margin: 0; font-size: 28px; text-align: center;">
                                 Verifikasi Email Baru Anda
                             </h1>
@@ -239,10 +239,10 @@ Tim Support
                             </p>
                             <div style="text-align: center; margin: 40px 0;">
                                 <a href="{verification_link}" 
-                                   style="display: inline-block; background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); 
+                                   style="display: inline-block; background-color: #f97316; 
                                           color: white; text-decoration: none; padding: 15px 40px; 
                                           border-radius: 50px; font-weight: bold; font-size: 16px;
-                                          box-shadow: 0 4px 15px rgba(59, 130, 246, 0.4);">
+                                          box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4);">
                                     Verifikasi Email Ini
                                 </a>
                             </div>
@@ -373,80 +373,73 @@ def create_styled_html_body(
     sesuai styling email aktivasi.
     """
     
-    # Style ini gw copy-paste dari fungsi send_activation_email lu
-    style = """
-    <style>
-        .container {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            margin: 20px;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            max-width: 600px;
-        }
-        .header {
-            font-size: 24px;
-            font-weight: bold;
-            color: #333;
-        }
-        .content {
-            margin-top: 20px;
-        }
-        .button {
-            display: inline-block;
-            background-color: #007bff;
-            color: #ffffff;
-            padding: 12px 25px;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-            margin-top: 20px;
-        }
-        .footer {
-            margin-top: 30px;
-            font-size: 12px;
-            color: #888;
-        }
-        ul {
-            padding-left: 20px;
-        }
-        li {
-            margin-bottom: 5px;
-        }
-    </style>
-    """
+    # Template HTML yang konsisten dengan send_activation_email
+    # Menggunakan warna orange #f97316 (bg-orange-500)
     
-    # Bikin tombol kalo ada
     button_html = ""
     if button_text and button_url:
         button_html = f"""
-        <a href="{button_url}" class="button" style="color: #ffffff; text-decoration: none;">
-            {button_text}
-        </a>
+        <div style="text-align: center; margin: 40px 0;">
+            <a href="{button_url}" 
+               style="display: inline-block; background-color: #f97316; 
+                      color: white; text-decoration: none; padding: 15px 40px; 
+                      border-radius: 50px; font-weight: bold; font-size: 16px;
+                      box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4);">
+                {button_text}
+            </a>
+        </div>
         """
 
-    # Gabungin semua
     body_html = f"""
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        {style}
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">{title}</div>
-            <div class="content">
-                {main_content}
-            </div>
-            {button_html}
-            <div class="footer">
-                <p>{footer_note}</p>
-                <p>&copy; {datetime.now().year} Tim Lab FTI</p>
-            </div>
-        </div>
-    </body>
-    </html>
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background-color: #f97316; padding: 40px 30px; border-radius: 8px 8px 0 0;">
+                            <h1 style="color: white; margin: 0; font-size: 28px; text-align: center;">
+                                {title}
+                            </h1>
+                        </td>
+                    </tr>
+                    
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            {main_content}
+                            
+                            {button_html}
+                            
+                            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+                            
+                            <p style="color: #999; font-size: 12px; text-align: center;">
+                                {footer_note}
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f9f9f9; padding: 20px 30px; border-radius: 0 0 8px 8px; text-align: center;">
+                            <p style="color: #999; font-size: 12px; margin: 0;">
+                                &copy; {datetime.now().year} Tim Lab FTI
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
     """
     return body_html
 
@@ -651,7 +644,7 @@ async def send_documentation_reminder_email(
     """
     Mengirim email pengingat ke USER untuk segera upload dokumentasi.
     """
-    
+     
     subject = f"Reminder: {pending_count} Booking Anda Menunggu Dokumentasi"
     
     main_content_html = f"""
@@ -744,7 +737,7 @@ Tim Support
             <td align="center">
                 <table width="600" cellpadding="0" cellspacing="0" style="background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                     <tr>
-                        <td style="background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); padding: 40px 30px; border-radius: 8px 8px 0 0;">
+                        <td style="background-color: #f97316; padding: 40px 30px; border-radius: 8px 8px 0 0;">
                             <h1 style="color: white; margin: 0; font-size: 28px; text-align: center;">
                                 Reset Password
                             </h1>
@@ -760,10 +753,10 @@ Tim Support
                             
                             <div style="text-align: center; margin: 40px 0;">
                                 <a href="{reset_link}" 
-                                   style="display: inline-block; background: linear-gradient(135deg, #FDBA74 0%, #EA580C 100%); 
+                                   style="display: inline-block; background-color: #f97316; 
                                           color: white; text-decoration: none; padding: 15px 40px; 
                                           border-radius: 50px; font-weight: bold; font-size: 16px;
-                                          box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);">
+                                          box-shadow: 0 4px 15px rgba(249, 115, 22, 0.4);">
                                     Atur Password Baru
                                 </a>
                             </div>
@@ -836,3 +829,119 @@ Tim Support
         error_msg = f"Failed to send password reset email: {str(e)}"
         print(f"❌ [SYNC] {error_msg}")
         raise Exception(error_msg)
+
+async def send_maintenance_cancellation_email(
+    recipient_email: str,
+    user_name: str,
+    booking_code: str,
+    lab_name: str,
+    maintenance_reason: str,
+    maintenance_start: datetime,
+    maintenance_end: datetime,
+    cancellation_type: str = "full", # 'full' or 'partial'
+    original_code: Optional[str] = None,
+    remaining_schedule: List[dict] = [],
+    conflict_start: Optional[datetime] = None,
+    conflict_end: Optional[datetime] = None
+) -> bool:
+    """
+    Kirim email notifikasi pembatalan booking karena maintenance.
+    Supports full cancellation and partial cancellation (reschedule/cut).
+    """
+    
+    display_code = original_code if original_code else booking_code
+    
+    # Format waktu maintenance
+    m_start_str = maintenance_start.strftime('%d %B %Y %H:%M')
+    m_end_str = maintenance_end.strftime('%d %B %Y %H:%M')
+    
+    # Format waktu konflik
+    c_start_str = conflict_start.strftime('%d %B %Y %H:%M') if conflict_start else "?"
+    c_end_str = conflict_end.strftime('%d %B %Y %H:%M') if conflict_end else "?"
+    
+    if cancellation_type == "partial":
+        subject = f"[PENTING] Perubahan Jadwal Booking {display_code} - Maintenance Lab"
+        
+        # Build remaining schedule HTML
+        rem_html = ""
+        if remaining_schedule:
+             rem_html += "<ul style='background-color: #f0fdf4; padding: 15px 15px 15px 35px; border-radius: 5px; border: 1px solid #bbf7d0;'>"
+             for sch in remaining_schedule:
+                 s_str = sch['start'].strftime('%d %B %Y %H:%M')
+                 e_str = sch['end'].strftime('%d %B %Y %H:%M')
+                 rem_html += f"<li style='color: #15803d; font-weight: bold;'>{s_str} s/d {e_str}</li>"
+             rem_html += "</ul>"
+        
+        main_content_html = f"""
+        <p>Halo, <strong>{user_name}</strong>,</p>
+        <p>Kami ingin menginformasikan bahwa booking Anda dengan kode <strong>{display_code}</strong> 
+        di <strong>{lab_name}</strong> mengalami <strong>PERUBAHAN JADWAL</strong> karena adanya maintenance.</p>
+        
+        <p>Sebagian waktu booking Anda beririsan dengan jadwal maintenance berikut:</p>
+        
+        <div style="background-color: #fff7ed; border-left: 4px solid #f97316; padding: 15px; margin: 20px 0;">
+            <p style="margin: 0 0 10px 0;"><strong>Alasan Maintenance:</strong><br>{maintenance_reason}</p>
+            <p style="margin: 0 0 10px 0;"><strong>Waktu Maintenance (Tidak Bisa Digunakan):</strong><br>{m_start_str} s/d {m_end_str}</p>
+            <hr style="border: 0; border-top: 1px dashed #ccc; margin: 10px 0;">
+            <p style="margin: 0;"><strong>Jadwal Anda yang Terkena Dampak (Dibatalkan):</strong><br>{c_start_str} s/d {c_end_str}</p>
+        </div>
+        
+        <p><strong>Status Booking Anda:</strong></p>
+        <p>Sistem telah otomatis memotong jadwal booking Anda yang bentrok. 
+        <strong>Sisa jadwal booking Anda berikut ini MASIH AKTIF dan dapat digunakan:</strong></p>
+        
+        {rem_html}
+        
+        <p>Silakan cek detail jadwal terbaru Anda di dashboard.</p>
+        """
+        title_text = "Perubahan Jadwal (Maintenance)"
+        
+    else: # Full Cancellation
+        subject = f"[PENTING] Pembatalan Booking {display_code} - Maintenance Lab"
+        
+        main_content_html = f"""
+        <p>Halo, <strong>{user_name}</strong>,</p>
+        <p>Mohon maaf, kami harus menginformasikan bahwa booking Anda dengan kode <strong>{display_code}</strong> 
+        di <strong>{lab_name}</strong> terpaksa kami <strong>BATALKAN</strong> secara otomatis.</p>
+        
+        <p>Hal ini dikarenakan adanya jadwal maintenance mendesak/terjadwal pada fasilitas tersebut:</p>
+        
+        <div style="background-color: #fff1f2; border-left: 4px solid #e11d48; padding: 15px; margin: 20px 0;">
+            <p style="margin: 0 0 10px 0;"><strong>Alasan Maintenance:</strong><br>{maintenance_reason}</p>
+            <p style="margin: 0 0 10px 0;"><strong>Waktu Maintenance:</strong><br>{m_start_str} s/d {m_end_str}</p>
+            <hr style="border: 0; border-top: 1px dashed #ccc; margin: 10px 0;">
+            <p style="margin: 0;"><strong>Jadwal Anda yang Dibatalkan:</strong><br>{c_start_str} s/d {c_end_str}</p>
+        </div>
+        
+        <p>Kami mohon maaf atas ketidaknyamanan ini. Silakan melakukan booking ulang di waktu lain yang tersedia.</p>
+        """
+        title_text = "Pembatalan Booking (Maintenance)"
+
+    base_url = BASE_URL_FRONTEND 
+    schedule_url = f"{base_url}/booking" # Arahin ke My Bookings buat cek status
+
+    html_content = create_styled_html_body(
+            title=title_text,
+            main_content=main_content_html,
+            button_text="Cek Booking Saya",
+            button_url=schedule_url,
+            footer_note="Email ini dikirim otomatis oleh sistem manajemen lab."
+        )
+
+    try:
+        email_sukses = await send_email_async(
+                recipients=[recipient_email],
+                subject=subject,
+                html_content=html_content
+            )
+        
+        if email_sukses:
+            print(f"✅ [Maintenance Notify] Sukses kirim notifikasi ({cancellation_type}) ke {recipient_email} untuk booking {display_code}")
+            return True
+        else:
+            print(f"❌ [Maintenance Notify] Gagal kirim email ke {recipient_email}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ [Maintenance Notify] Error saat kirim email ke {recipient_email}: {e}")
+        return False

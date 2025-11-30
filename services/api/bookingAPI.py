@@ -7,6 +7,7 @@ from typing import List, Optional, Set
 from datetime import datetime
 
 from ..database import get_db
+from utils import email_service
 
 # --- IMPORT UDAH DI-UPDATE ---
 from ..controller import bookingController, usersController, fileController, auditLogController
@@ -780,5 +781,40 @@ def set_booking_maintenance_api(
             user_agent=request.headers.get("user-agent")
         )
     # ---------------------------------
+
+    # --- EMAIL NOTIFICATION (BACKGROUND) ---
+    cancelled_bookings = result.get("cancelled_bookings", [])
+    if cancelled_bookings:
+        print(f"[Maintenance API] Triggering cancellation emails for {len(cancelled_bookings)} bookings.")
+        for item in cancelled_bookings:
+            # Item is now a dict: {'type': ..., 'booking': ..., 'original_code': ...}
+            cb = item.get('booking')
+            c_type = item.get('type', 'full')
+            orig_code = item.get('original_code')
+            
+            rem_schedule = item.get('remaining_schedule', [])
+
+            # Pastikan data user dan lab ada
+            if cb and cb.user and cb.lab_facility and cb.lab_facility.lab:
+                background_tasks.add_task(
+                    email_service.send_maintenance_cancellation_email,
+                    recipient_email=cb.user.vemail,
+                    user_name=cb.user.vname,
+                    booking_code=cb.vcode,
+                    lab_name=cb.lab_facility.lab.vname,
+                    maintenance_reason=vactivity,
+                    maintenance_start=dstart,
+                    maintenance_end=dend,
+                    cancellation_type=c_type,
+                    original_code=orig_code,
+                    remaining_schedule=rem_schedule,
+                    conflict_start=cb.dstart,
+                    conflict_end=cb.dend
+                )
+    
+    # Remove raw objects before returning response (to avoid serialization error if any)
+    if "cancelled_bookings" in result:
+        del result["cancelled_bookings"]
+    # ---------------------------------------
 
     return result

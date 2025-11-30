@@ -330,6 +330,14 @@ async def create_booking(db: Session, current_user: usersModel.User, request: Re
                  detail="Booking untuk hari ini sudah ditutup (batas jam 17:00). Silakan lakukan booking untuk besok atau hari berikutnya."
              )
     
+    # [NEW] Validation: Tidak bisa booking hari Minggu
+    booking_start_wib = to_wib(dstart)
+    if booking_start_wib.weekday() == 6: # 0=Monday, 6=Sunday
+        raise HTTPException(
+            status_code=400,
+            detail="Layanan tutup pada hari Minggu. Silakan pilih hari lain."
+        )
+    
     lab_facility = db.query(LabFacility).filter(
         LabFacility.nid_lab == nid_lab,
         LabFacility.nid_facility == nid_facility,
@@ -430,7 +438,7 @@ def update_booking_status(
             exclude_booking_id=db_booking.nid
         )
         if not is_available:
-            raise HTTPException(status_code=409, detail="Konflik booking: Slot ini sudah di-approve untuk booking lain.")
+            raise HTTPException(status_code=409, detail="Maaf, jadwal yang dipilih tidak tersedia karena telah dipesan oleh pengguna lain.")
 
         is_scoped = check_booking_lab_scope(db, current_user, user_roles, booked_lab_id)
         if not is_scoped:
@@ -808,6 +816,13 @@ async def notify_user_of_status_update(booking_id: int, new_status: int, reviewe
         else:
             review_time = db_booking.dreviewed_at
 
+        booked_user = db_booking.user
+        booked_lab = db_booking.lab_facility.lab
+        
+        # Ambil data reviewer
+        db_reviewer = db.query(usersModel.User).filter(usersModel.User.nid == reviewer_nid).first()
+        reviewer_name = db_reviewer.vname if db_reviewer else "Admin"
+
         # 3. Kirim email
         await email_service.send_booking_status_email(
             recipient_email=booked_user.vemail,
@@ -816,7 +831,7 @@ async def notify_user_of_status_update(booking_id: int, new_status: int, reviewe
             lab_name=booked_lab.vname,
             activity=db_booking.vactivity,
             new_status_str=new_status_str,
-            reviewer_name=db_reviewer.vname,
+            reviewer_name=reviewer_name,
             reviewed_at=review_time
         )
 
@@ -1830,9 +1845,10 @@ def cancel_conflicting_bookings(
     start_date: datetime,
     end_date: datetime,
     current_user: usersModel.User
-) -> int:
+) -> List[dict]:
     """
     Menangani booking yang konflik dengan jadwal maintenance.
+    Returns: List of dicts {'type': 'full'|'partial', 'booking': Booking, 'original_code': str}
     Logic:
     1. Full Overlap (Booking inside Maintenance) -> Cancel
     2. Split (Maintenance inside Booking) -> Resize original + Create new booking
@@ -1845,17 +1861,23 @@ def cancel_conflicting_bookings(
     start_date = to_wib(start_date)
     end_date = to_wib(end_date)
     
-    conflicting_bookings = db.query(Booking).filter(
+    # Load relationships for email notification
+    conflicting_bookings = db.query(Booking).options(
+        joinedload(Booking.user),
+        joinedload(Booking.lab_facility).joinedload(LabFacility.lab)
+    ).filter(
         Booking.nid_lab_facility == lab_facility_id,
         Booking.nstatus.in_(conflict_statuses),
         Booking.dstart < end_date,
         Booking.dend > start_date
     ).all()
     
-    count = 0
+    cancelled_list = []
+    
     for booking in conflicting_bookings:
         b_start = to_wib(booking.dstart)
         b_end = to_wib(booking.dend)
+        original_code = booking.vcode
         
         # Calculate Overlap
         overlap_start = max(b_start, start_date)
@@ -1873,7 +1895,11 @@ def cancel_conflicting_bookings(
             booking.dcanceled_at = now_wib()
             booking.vmodified_by = current_user.vcode
             booking.dsort_at = now_wib()
-            count += 1
+            cancelled_list.append({
+                'type': 'full',
+                'booking': booking,
+                'original_code': original_code
+            })
         else:
             # Partial Overlap -> We need to handle the overlap and the remainder
             
@@ -1893,7 +1919,42 @@ def cancel_conflicting_bookings(
                 dcanceled_at=now_wib(),
                 dsort_at=now_wib()
             )
+            # Manually attach relationships to clone for notification purpose
+            cancelled_clone.user = booking.user
+            cancelled_clone.lab_facility = booking.lab_facility
+            
+            # Helper to clamp start time to 08:00 if it's earlier
+            def adjust_start_to_working_hours(dt: datetime) -> datetime:
+                # If time is before 08:00, set it to 08:00
+                if dt.hour < 8:
+                    return dt.replace(hour=8, minute=0, second=0, microsecond=0)
+                return dt
+
+            remaining_schedule = []
+            if b_start < start_date and b_end > end_date:
+                 # Remainder 1 (Before Maintenance)
+                 remaining_schedule.append({'start': b_start, 'end': start_date})
+                 
+                 # Remainder 2 (After Maintenance)
+                 new_start_2 = adjust_start_to_working_hours(end_date)
+                 if new_start_2 < b_end:
+                    remaining_schedule.append({'start': new_start_2, 'end': b_end})
+                    
+            elif b_start < start_date:
+                 remaining_schedule.append({'start': b_start, 'end': start_date})
+                 
+            elif b_end > end_date:
+                 new_start = adjust_start_to_working_hours(end_date)
+                 if new_start < b_end:
+                    remaining_schedule.append({'start': new_start, 'end': b_end})
+
             db.add(cancelled_clone)
+            cancelled_list.append({
+                'type': 'partial',
+                'booking': cancelled_clone,
+                'original_code': original_code,
+                'remaining_schedule': remaining_schedule
+            })
             
             # 2. Resize/Split the Original Booking
             
@@ -1905,21 +1966,24 @@ def cancel_conflicting_bookings(
                 booking.dsort_at = now_wib()
                 
                 # Create Clone for the remainder (after overlap end)
-                remainder_code = generate_unique_booking_code(db)
-                remainder_clone = Booking(
-                    vcode=remainder_code,
-                    nid_lab_facility=booking.nid_lab_facility,
-                    nid_user=booking.nid_user,
-                    dstart=end_date,
-                    dend=b_end,
-                    vactivity=booking.vactivity,
-                    nstatus=booking.nstatus, # Keep original status
-                    nbooking_type=booking.nbooking_type,
-                    dcreated_at=now_wib(),
-                    vcreated_by=current_user.vcode,
-                    dsort_at=now_wib()
-                )
-                db.add(remainder_clone)
+                new_start_clone = adjust_start_to_working_hours(end_date)
+                
+                if new_start_clone < b_end:
+                    remainder_code = generate_unique_booking_code(db)
+                    remainder_clone = Booking(
+                        vcode=remainder_code,
+                        nid_lab_facility=booking.nid_lab_facility,
+                        nid_user=booking.nid_user,
+                        dstart=new_start_clone,
+                        dend=b_end,
+                        vactivity=booking.vactivity,
+                        nstatus=booking.nstatus, # Keep original status
+                        nbooking_type=booking.nbooking_type,
+                        dcreated_at=now_wib(),
+                        vcreated_by=current_user.vcode,
+                        dsort_at=now_wib()
+                    )
+                    db.add(remainder_clone)
                 
             # Case 3: Overlap at End (Booking starts before, ends inside Maintenance)
             elif b_start < start_date:
@@ -1931,20 +1995,27 @@ def cancel_conflicting_bookings(
             # Case 4: Overlap at Start (Booking starts inside, ends after Maintenance)
             elif b_end > end_date:
                 # Resize Original to start at overlap end
-                booking.dstart = end_date
-                booking.vmodified_by = current_user.vcode
-                booking.dsort_at = now_wib()
+                new_start_original = adjust_start_to_working_hours(end_date)
+                
+                if new_start_original < b_end:
+                    booking.dstart = new_start_original
+                    booking.vmodified_by = current_user.vcode
+                    booking.dsort_at = now_wib()
+                else:
+                    # If the adjusted start is after end, the booking is effectively gone
+                    booking.nstatus = 3 # Cancelled
+                    booking.dcanceled_at = now_wib()
+                    booking.vmodified_by = current_user.vcode
             
-            count += 1
         
-    if count > 0:
+    if cancelled_list:
         try:
             db.commit()
         except Exception as e:
             db.rollback()
             raise HTTPException(status_code=500, detail=f"Gagal memproses booking konflik: {str(e)}")
             
-    return count
+    return cancelled_list
 
 def set_booking_maintenance(
     nid_lab: int,
@@ -1977,40 +2048,43 @@ def set_booking_maintenance(
             status_code=409, 
             detail=f"Booking conflict: Terdapat {conflict_count} booking yang konflik dengan jadwal maintenance ini."
         )
-    elif conflict_count > 0 and force:
+    
+    cancelled_bookings_list = []
+    if conflict_count > 0 and force:
         # Cancel conflicting bookings
-        cancelled_count = cancel_conflicting_bookings(
+        cancelled_bookings_list = cancel_conflicting_bookings(
             db, nid_lab_facility, dstart, dend, current_user
         )
         # Continue to create maintenance booking
         
-        # Create Maintenance Booking
-        new_code = generate_unique_booking_code(db)
-        new_maintenance = Booking(
-            vcode=new_code,
-            nid_lab_facility=nid_lab_facility,
-            nid_user=current_user.nid,
-            dstart=dstart,
-            dend=dend,
-            vactivity="Maintenance: " + vactivity,
-            nstatus=1, # Approved by default for maintenance
-            nbooking_type=1, # Maintenance
-            dcreated_at=now_wib(),
-            vcreated_by=current_user.vcode
-        )
-        
-        try:
-            db.add(new_maintenance)
-            db.commit()
-            db.refresh(new_maintenance)
-        except Exception as e:
-            db.rollback()
-            raise HTTPException(status_code=500, detail=f"Gagal membuat jadwal maintenance: {str(e)}")
+    # Create Maintenance Booking
+    new_code = generate_unique_booking_code(db)
+    new_maintenance = Booking(
+        vcode=new_code,
+        nid_lab_facility=nid_lab_facility,
+        nid_user=current_user.nid,
+        dstart=dstart,
+        dend=dend,
+        vactivity="Maintenance: " + vactivity,
+        nstatus=1, # Approved by default for maintenance
+        nbooking_type=1, # Maintenance
+        dcreated_at=now_wib(),
+        vcreated_by=current_user.vcode
+    )
+    
+    try:
+        db.add(new_maintenance)
+        db.commit()
+        db.refresh(new_maintenance)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal membuat jadwal maintenance: {str(e)}")
 
     return {
         "message": "Jadwal maintenance berhasil dibuat.",
         "booking": BookingSchema.model_validate(new_maintenance).model_dump(mode='json'),
-        "conflicts_resolved": conflict_count if force else 0
+        "conflicts_resolved": len(cancelled_bookings_list) if force else 0,
+        "cancelled_bookings": cancelled_bookings_list # Return raw objects for API layer to process
     }
 
 
