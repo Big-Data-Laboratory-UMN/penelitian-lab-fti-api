@@ -740,7 +740,7 @@ def set_booking_maintenance_api(
     request: Request,
     background_tasks: BackgroundTasks,
     nid_lab: int = Form(...),
-    nid_facility: int = Form(...),
+    nid_facility: Optional[int] = Form(None),
     dstart: datetime = Form(...),
     dend: datetime = Form(...),
     vactivity: str = Form(...),

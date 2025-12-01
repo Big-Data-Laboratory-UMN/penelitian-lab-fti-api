@@ -2019,7 +2019,7 @@ def cancel_conflicting_bookings(
 
 def set_booking_maintenance(
     nid_lab: int,
-    nid_facility: int,
+    nid_facility: Optional[int],
     vactivity: str,
     dstart: datetime,
     dend: datetime,
@@ -2027,64 +2027,102 @@ def set_booking_maintenance(
     db: Session,
     current_user: usersModel.User
 ):
-    lab_facility = db.query(LabFacility).filter(
-        LabFacility.nid_lab == nid_lab,
-        LabFacility.nid_facility == nid_facility,
-        LabFacility.nstatus == 1
-    ).first()
+    # 1. Identify Target Facilities
+    target_facilities = []
     
-    if not lab_facility:
-        raise HTTPException(status_code=404, detail=f"Kombinasi Lab (ID: {nid_lab}) dan Fasilitas (ID: {nid_facility}) tidak ditemukan atau tidak aktif.")
+    # Fetch Lab Info for Error Messages
+    lab_info = f"Lab ID: {nid_lab}" # Default fallback
+    lab_obj = db.query(labModel.Lab).filter(labModel.Lab.nid == nid_lab).first()
+    if lab_obj:
+        lab_info = f"{lab_obj.vname} ({lab_obj.vcode})"
+
+    if nid_facility:
+        # Single Facility Mode
+        fac = db.query(LabFacility).filter(
+            LabFacility.nid_lab == nid_lab,
+            LabFacility.nid_facility == nid_facility,
+            LabFacility.nstatus == 1
+        ).first()
+        if not fac:
+            # Fetch Facility Info for Error Message
+            fac_info = f"Fasilitas ID: {nid_facility}"
+            fac_obj = db.query(facilityModel.Facility).filter(facilityModel.Facility.nid == nid_facility).first()
+            if fac_obj:
+                fac_info = f"{fac_obj.vname} ({fac_obj.vcode})"
+            
+            raise HTTPException(status_code=404, detail=f"Kombinasi {lab_info} dan {fac_info} tidak ditemukan atau tidak aktif.")
+        target_facilities.append(fac)
+    else:
+        # All Facilities Mode
+        target_facilities = db.query(LabFacility).filter(
+            LabFacility.nid_lab == nid_lab,
+            LabFacility.nstatus == 1
+        ).all()
+        if not target_facilities:
+             raise HTTPException(status_code=404, detail=f"Tidak bisa melakukan booking maintenance pada {lab_info} karena tidak ada fasilitas aktif yang ditemukan.")
+
+    # 2. Check Conflicts (Aggregate)
+    total_conflicts = 0
+    for fac in target_facilities:
+        count = count_maintenance_conflicts(
+            db, lab_facility_id=fac.nid,
+            start_date=dstart, end_date=dend
+        )
+        total_conflicts += count
     
-    nid_lab_facility = lab_facility.nid
-        
-    conflict_count = count_maintenance_conflicts(
-        db, lab_facility_id=nid_lab_facility,
-        start_date=dstart, end_date=dend
-    )
-    
-    if conflict_count > 0 and not force:
+    if total_conflicts > 0 and not force:
         raise HTTPException(
             status_code=409, 
-            detail=f"Booking conflict: Terdapat {conflict_count} booking yang konflik dengan jadwal maintenance ini."
+            detail=f"Booking conflict: Terdapat total {total_conflicts} booking yang konflik dengan jadwal maintenance ini di seluruh fasilitas yang dipilih."
         )
-    
-    cancelled_bookings_list = []
-    if conflict_count > 0 and force:
-        # Cancel conflicting bookings
-        cancelled_bookings_list = cancel_conflicting_bookings(
-            db, nid_lab_facility, dstart, dend, current_user
-        )
-        # Continue to create maintenance booking
-        
-    # Create Maintenance Booking
-    new_code = generate_unique_booking_code(db)
-    new_maintenance = Booking(
-        vcode=new_code,
-        nid_lab_facility=nid_lab_facility,
-        nid_user=current_user.nid,
-        dstart=dstart,
-        dend=dend,
-        vactivity="Maintenance: " + vactivity,
-        nstatus=1, # Approved by default for maintenance
-        nbooking_type=1, # Maintenance
-        dcreated_at=now_wib(),
-        vcreated_by=current_user.vcode
-    )
+
+    # 3. Process Maintenance
+    all_cancelled_bookings = []
+    created_bookings = []
     
     try:
-        db.add(new_maintenance)
+        for fac in target_facilities:
+            # Cancel conflicts if force
+            if total_conflicts > 0 and force:
+                cancelled = cancel_conflicting_bookings(
+                    db, fac.nid, dstart, dend, current_user
+                )
+                all_cancelled_bookings.extend(cancelled)
+            
+            # Create Maintenance Booking
+            new_code = generate_unique_booking_code(db)
+            new_maintenance = Booking(
+                vcode=new_code,
+                nid_lab_facility=fac.nid,
+                nid_user=current_user.nid,
+                dstart=dstart,
+                dend=dend,
+                vactivity="Maintenance: " + vactivity,
+                nstatus=1, # Approved by default for maintenance
+                nbooking_type=1, # Maintenance
+                dcreated_at=now_wib(),
+                vcreated_by=current_user.vcode
+            )
+            db.add(new_maintenance)
+            created_bookings.append(new_maintenance)
+        
         db.commit()
-        db.refresh(new_maintenance)
+        for b in created_bookings:
+            db.refresh(b)
+            
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Gagal membuat jadwal maintenance: {str(e)}")
 
+    # Return result
+    # We return the first booking to satisfy the API response structure expected by the caller
+    primary_booking = created_bookings[0] if created_bookings else None
+    
     return {
-        "message": "Jadwal maintenance berhasil dibuat.",
-        "booking": BookingSchema.model_validate(new_maintenance).model_dump(mode='json'),
-        "conflicts_resolved": len(cancelled_bookings_list) if force else 0,
-        "cancelled_bookings": cancelled_bookings_list # Return raw objects for API layer to process
+        "message": f"Jadwal maintenance berhasil dibuat untuk {len(created_bookings)} fasilitas.",
+        "booking": BookingSchema.model_validate(primary_booking).model_dump(mode='json') if primary_booking else None,
+        "conflicts_resolved": len(all_cancelled_bookings) if force else 0,
+        "cancelled_bookings": all_cancelled_bookings 
     }
 
 
