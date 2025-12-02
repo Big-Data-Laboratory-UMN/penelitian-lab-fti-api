@@ -735,6 +735,16 @@ def get_oldest_waiting_doc_bookings_api(
         limit=limit
     )
 
+@router.get("/stats/utilization", response_model=List[dict])
+def get_lab_utilization_stats_api(
+    db: Session = Depends(get_db),
+    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+):
+    # Cek akses manajemen (SA/ADM/PIC)
+    check_management_access(db, current_user)
+    
+    return bookingController.get_lab_utilization_stats(db=db)
+
 @router.post("/maintenance", response_model=dict)
 def set_booking_maintenance_api(
     request: Request,

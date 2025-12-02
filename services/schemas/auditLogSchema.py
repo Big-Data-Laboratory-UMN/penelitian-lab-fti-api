@@ -18,97 +18,6 @@ class ActivityLogResponse(BaseModel):
     actor_name: str 
     actor_email: str
     actor_role: Optional[str] = None
-    
-    action: str = Field(..., alias="vaction") # CREATE, UPDATE, DELETE
-    module: str = Field(..., alias="vtarget_model") # e.g. Booking, Lab
-    target_id: str = Field(..., alias="vtarget_identifier") # ID objek yg diubah
-    
-    # Data changes (Crucial buat table diff)
-    changes_before: Optional[Dict[str, Any]] = Field(None, alias="jbefore")
-    changes_after: Optional[Dict[str, Any]] = Field(None, alias="jafter")
-    
-    ip_address: Optional[str] = Field(None, alias="vip_address")
-    timestamp: datetime = Field(..., alias="dtimestamp")
-
-    class Config:
-        from_attributes = True
-        populate_by_name = True # Biar bisa pake alias
-
-# --- SECURITY LOG (Tracking Login/Access) ---
-class SecurityLogResponse(BaseModel):
-    nid: int
-    actor_name: Optional[str] = "System/Guest"
-    actor_email: Optional[str] = None
-    
-    event: str = Field(..., alias="vaction") # LOGIN_SUCCESS, LOGIN_FAILED
-    status: str = "Info" # Computed field di FE nanti (Success=Green, Failed=Red)
-    
-    ip_address: Optional[str] = Field(None, alias="vip_address")
-    device_info: Optional[str] = Field(None, alias="vuser_agent") 
-    details: Optional[str] = Field(None, alias="vdetails")
-    
-    timestamp: datetime = Field(..., alias="dtimestamp")
-
-    class Config:
-        from_attributes = True
-        populate_by_name = True
-
-# --- STATS SCHEMA (INI YANG TADI HILANG) ---
-class AuditStats(BaseModel):
-    # Activity Stats
-    total_activities: int
-    creates: int
-    updates: int
-    deletes: int
-    
-    # Security Stats
-    total_security_events: int
-    login_success: int
-    failed_logins: int
-    
-    # User Insight
-    unique_actors: int
-    distinct_ips: int
-    
-    # Info tambahan (Opsional, buat ngasih tau FE ini data rentang kapan)
-    period_start: Optional[datetime] = None
-    period_end: Optional[datetime] = None
-    
-# --- PAGINATION WRAPPER ---
-class PaginatedActivityLog(BaseModel):
-    data: List[ActivityLogResponse]
-    total: int
-    page: int
-    limit: int
-
-class PaginatedSecurityLog(BaseModel):
-    data: List[SecurityLogResponse]
-    total: int
-    page: int
-    limit: int
-
-class DistributionItem(BaseModel):
-    label: str
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-from datetime import datetime
-from .usersSchema import User # Kita butuh detail user
-
-# --- SHARED ---
-# Base schema biar gak redundan
-class ActorInfo(BaseModel):
-    nid: int
-    vname: str
-    vemail: str
-    vrole: Optional[str] = None
-
-# --- ACTIVITY LOG (Tracking Perubahan Data) ---
-class ActivityLogResponse(BaseModel):
-    nid: int
-    # Flatten user info biar FE gak perlu gali deep object
-    actor_name: str 
-    actor_email: str
-    actor_role: Optional[str] = None
     facility_name: Optional[str] = None
     
     action: str = Field(..., alias="vaction") # CREATE, UPDATE, DELETE
@@ -194,3 +103,17 @@ class DistributionResponse(BaseModel):
 class BookingActivityLogListResponse(BaseModel):
     data: List[ActivityLogResponse]
     total: int
+
+# --- SUPERADMIN STATS ---
+class SuperAdminStats(BaseModel):
+    system_pulse: float # Percentage
+    system_pulse_context: str # e.g. "12 Error 500s detected today"
+    
+    threat_level: int # Count of suspicious activities
+    threat_level_context: str # e.g. "+5 Unauthorized Access Attempts vs Yesterday"
+    
+    infrastructure_load: float # Percentage of available facilities
+    infrastructure_load_context: str # e.g. "15 Facilities under Maintenance"
+    
+    peak_hour_velocity: int # Current occupancy count
+    peak_hour_velocity_context: str # e.g. "3 Labs Fully Booked right now"

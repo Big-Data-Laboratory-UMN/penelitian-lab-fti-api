@@ -1,9 +1,9 @@
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, desc
 from fastapi import HTTPException, Request, UploadFile, BackgroundTasks
 import uuid
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Set
 from collections import defaultdict
 
@@ -2124,5 +2124,43 @@ def set_booking_maintenance(
         "conflicts_resolved": len(all_cancelled_bookings) if force else 0,
         "cancelled_bookings": all_cancelled_bookings 
     }
+
+def get_lab_utilization_stats(db: Session):
+    """
+    Mengambil statistik utilisasi lab berdasarkan jumlah booking
+    dalam 30 hari terakhir. Termasuk lab dengan 0 booking.
+    """
+    thirty_days_ago = now_wib() - timedelta(days=30)
+    
+    # Subquery untuk filter booking 30 hari terakhir (SEMUA STATUS)
+    # Kita perlu ini supaya filter tanggal tidak membuang Lab yang tidak punya booking di range tsb
+    subquery_booking = db.query(
+        Booking.nid_lab_facility,
+        Booking.nid
+    ).filter(
+        Booking.dstart >= thirty_days_ago
+    ).subquery()
+
+    results = db.query(
+        labModel.Lab.vname,
+        func.count(subquery_booking.c.nid).label('booking_count')
+    ).outerjoin(
+        LabFacility, labModel.Lab.nid == LabFacility.nid_lab
+    ).outerjoin(
+        subquery_booking, LabFacility.nid == subquery_booking.c.nid_lab_facility
+    ).filter(
+        labModel.Lab.nstatus == 1 # Hanya lab aktif
+    ).group_by(
+        labModel.Lab.nid, labModel.Lab.vname
+    ).order_by(
+        desc('booking_count')
+    ).all()
+    
+    stats = [
+        {"lab_name": r.vname, "booking_count": r.booking_count}
+        for r in results
+    ]
+    
+    return stats
 
 
