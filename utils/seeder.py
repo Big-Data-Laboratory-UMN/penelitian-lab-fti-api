@@ -17,7 +17,8 @@ from services.models import (
     DepartmentLab,
     LabFacility,
     User,
-    UserAccess
+    UserAccess,
+    Building
 )
 
 def seed_data():
@@ -29,11 +30,11 @@ def seed_data():
             print("Tabel 'tblm_lab' kosong, memulai proses seeding...")
 
             labs_to_seed = [
-                {'vcode': 'BDA', 'vname': 'Lab Big Data', 'vdesc': 'Lab untuk penelitian Big Data.', 'ncapacity': 15,'vcreated_by': 'system-migration'},
-                {'vcode': 'AI', 'vname': 'Lab Artificial Intelligence', 'vdesc': 'Lab penelitian AI.','ncapacity': 15, 'vcreated_by': 'system-migration'},
-                {'vcode': 'DIGINT', 'vname': 'Lab Digital Interaction', 'vdesc': 'Lab Interaksi Digital.','ncapacity': 15, 'vcreated_by': 'system-migration'},
-                {'vcode': 'CYBER', 'vname': 'Lab Cyber Security', 'vdesc': 'Lab Keamanan Siber.', 'ncapacity': 15, 'vcreated_by': 'system-migration'},
-                {'vcode': 'IOT', 'vname': 'Lab Internet of Things', 'vdesc': 'Lab IoT.', 'ncapacity': 15, 'vcreated_by': 'system-migration'},
+                {'vcode': 'BDA', 'vname': 'Lab Big Data', 'vdesc': 'Lab untuk penelitian Big Data.', 'ncapacity': 15,'vcreated_by': 'system-migration','nid_building': 3, 'vroom_number': '509'},
+                {'vcode': 'AI', 'vname': 'Lab Artificial Intelligence', 'vdesc': 'Lab penelitian AI.','ncapacity': 15, 'vcreated_by': 'system-migration', 'nid_building': 3, 'vroom_number': '508'},
+                {'vcode': 'DIGINT', 'vname': 'Lab Digital Interaction', 'vdesc': 'Lab Interaksi Digital.','ncapacity': 15, 'vcreated_by': 'system-migration', 'nid_building': 3, 'vroom_number': '503'},
+                {'vcode': 'CYBER', 'vname': 'Lab Cyber Security', 'vdesc': 'Lab Keamanan Siber.', 'ncapacity': 15, 'vcreated_by': 'system-migration', 'nid_building': 3, 'vroom_number': '510'},
+                {'vcode': 'IOT', 'vname': 'Lab Internet of Things', 'vdesc': 'Lab IoT.', 'ncapacity': 15, 'vcreated_by': 'system-migration', 'nid_building': 3, 'vroom_number': '504'},
             ]
             db.add_all([Lab(**lab) for lab in labs_to_seed])
             db.commit()
@@ -98,6 +99,21 @@ def seed_data():
             print("✅ Seeding berhasil 'tblm_roles'")
         else:
             print("⏭️  Data sudah ada di tabel 'tblm_roles'.")
+        
+        # === SEED BUILDING ===
+        if db.query(Building).count() == 0:
+            print("Tabel 'tblm_building' kosong, memulai proses seeding...")
+            building_to_seed = [
+                {'vcode': 'A', 'vname': 'Building A', 'vdesc': 'Building A', 'vcreated_by': 'system-migration'},
+                {'vcode': 'B', 'vname': 'Building B', 'vdesc': 'Building B', 'vcreated_by': 'system-migration'},
+                {'vcode': 'C', 'vname': 'Building C', 'vdesc': 'Building C', 'vcreated_by': 'system-migration'},
+                {'vcode': 'D', 'vname': 'Building D', 'vdesc': 'Building D', 'vcreated_by': 'system-migration'},
+            ]
+            db.add_all([Building(**building) for building in building_to_seed])
+            db.commit()
+            print("✅ Seeding berhasil 'tblm_building'")
+        else:
+            print("⏭️  Data sudah ada di tabel 'tblm_building'.")
 
 
         # === SEED USERS ===

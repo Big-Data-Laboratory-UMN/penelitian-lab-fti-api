@@ -15,6 +15,8 @@ class LabGallery(Base):
     
     nid_lab = Column(Integer, ForeignKey("tblm_lab.nid"), nullable=False)
     nid_file = Column(Integer, ForeignKey("tblm_files.nid"), nullable=False)
+
+    ntype = Column(Integer, nullable=False, default=2, comment="1 = Hero Image, 2 = Gallery Image")
     
     nstatus = Column(Integer, nullable=False, default=1)
     
@@ -27,6 +29,7 @@ class LabGallery(Base):
     file = relationship("Files")
 
     __table_args__ = (
+        CheckConstraint('ntype IN (1, 2)', name='chk_lab_gallery_ntype_values'),
         CheckConstraint('nstatus IN (0, 1)', name='chk_lab_gallery_nstatus_values'),
         UniqueConstraint("nid_lab", "nid_file", name="uq_lab_gallery_lab_file"),
     )

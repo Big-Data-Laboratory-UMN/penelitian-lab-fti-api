@@ -19,3 +19,4 @@ from .labContentFilesModel import LabContentFiles
 from .landingPageModel import LandingPages
 from .landingPageImageModel import LandingPageImage
 from .labGalleryModel import LabGallery
+from .buildingModel import Building

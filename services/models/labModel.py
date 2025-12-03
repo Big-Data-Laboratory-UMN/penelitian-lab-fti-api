@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Float, CheckConstraint, UniqueConstraint
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Float, CheckConstraint, UniqueConstraint, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func 
 from ..database import Base
@@ -18,9 +18,10 @@ class Lab(Base):
     vname = Column(String(255), nullable=False)
     vdesc = Column(Text, nullable=False)
     
-    hero_image_vcode = Column(String(100), nullable=True)
-
     ncapacity = Column(Integer, nullable=False)
+
+    nid_building = Column(Integer, ForeignKey("tblm_building.nid"), nullable=False)
+    vroom_number = Column(String(100), nullable=False)
     
     nstatus = Column(Integer, nullable=False, default=1)
     
@@ -32,6 +33,7 @@ class Lab(Base):
     dsort_at = Column(DateTime, default=now_wib, onupdate=now_wib) 
     
     lab_facilities = relationship("LabFacility", back_populates="lab")
+    building = relationship("Building", back_populates="lab_rel")
 
     __table_args__ = (
         CheckConstraint('nstatus IN (0, 1)', name='chk_lab_nstatus_values'),
