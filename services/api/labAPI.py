@@ -1,27 +1,24 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks # type: ignore
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks, UploadFile, File as FastAPIFile, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pathlib import Path
+import shutil
+import os
+import uuid
 
-from ..schemas import labSchema as schema, usersSchema
+from ..schemas import labSchema as schema, usersSchema, filesSchema
 from ..schemas.labSchema import Lab
 from ..controller import auditLogController
 from ..controller import labController, usersController, userAccessController
-from ..database import SessionLocal
-
-import uuid 
 from ..controller import departmentLabController 
 from ..schemas import departmentLabSchema 
 from ..models import userAccessModel, rolesModel
+from ..database import SessionLocal
 
-from datetime import datetime
 import pytz
 
 JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
-
-def to_wib(dt: datetime) -> datetime:
-    if dt is None:
-        return dt
-    return JAKARTA_TZ.localize(dt) if dt.tzinfo is None else dt.astimezone(JAKARTA_TZ)
 
 router = APIRouter(
     prefix="/labs",
@@ -100,55 +97,80 @@ def get_lab_by_id(lab_id: int, db: Session = Depends(get_db), current_user: user
 
 
 @router.post("/", response_model=schema.Lab, status_code=status.HTTP_201_CREATED)
-def create_new_lab(
-    lab: schema.LabCreate, 
-    request: Request, 
-    background_tasks: BackgroundTasks, 
+async def create_new_lab(
+    vcode: str = Form(...),
+    vname: str = Form(...),
+    vdesc: str = Form(...),
+    nid_building: int = Form(...),
+    vroom_number: str = Form(...),
+    ncapacity: int = Form(...),
+    hero_image: UploadFile = FastAPIFile(None),
+    gallery_images: List[UploadFile] = FastAPIFile(None),
+    request: Request = None, 
+    background_tasks: BackgroundTasks = None, 
     db: Session = Depends(get_db), 
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
     
+    print(f"\n[Create Lab API] Request from User: {current_user.vcode}")
+    
     try:
-        # 1. Create Lab Baru
-        lab.vcreated_by = current_user.vcode
-        new_lab = labController.create_lab(db=db, lab=lab, current_user=current_user)
+        # Validate Max Images
+        total_gallery_images = len(gallery_images) if gallery_images else 0
+        if total_gallery_images > 24:
+             raise HTTPException(status_code=400, detail="Maksimal 24 gambar galeri yang diperbolehkan.")
+
+        # Prepare Lab Data
+        lab_data = schema.LabCreate(
+            vcode=vcode,
+            vname=vname,
+            vdesc=vdesc,
+            nid_building=nid_building,
+            vroom_number=vroom_number,
+            ncapacity=ncapacity,
+            vcreated_by=current_user.vcode
+        )
+
+        # Call Controller with Files
+        new_lab = await labController.create_lab_with_files(
+            db=db,
+            lab=lab_data,
+            current_user=current_user,
+            request=request,
+            hero_image=hero_image,
+            gallery_images=gallery_images
+        )
         
-        # --- [LOGIC BARU: AUTO MAPPING ADMIN DEPT] ---
-        # Cek apakah user yang create adalah ADMIN (ADM)
+        # Auto Mapping Admin Dept
         admin_access = db.query(userAccessModel.UserAccess).join(
             rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
         ).filter(
             userAccessModel.UserAccess.nid_user == current_user.nid,
-            rolesModel.Role.vcode == 'ADM', # Cek role ADM
+            rolesModel.Role.vcode == 'ADM',
             userAccessModel.UserAccess.nstatus == 1
         ).first()
 
-        # Kalau dia Admin dan punya Departemen yg valid
         if admin_access and admin_access.nid_department:
             print(f"[AutoMap] User is Admin of Dept ID {admin_access.nid_department}. Linking Lab...")
             
-            # Generate vcode unik untuk mapping, misal: DLAB-{random}
             dl_vcode = f"DLAB-{uuid.uuid4().hex[:8].upper()}"
             
-            # Siapkan data schema
             dl_create_data = departmentLabSchema.DepartmentLabCreate(
                 vcode=dl_vcode,
                 nid_department=admin_access.nid_department,
-                nid_lab=new_lab.nid, # ID Lab yang baru aja dibuat
+                nid_lab=new_lab.nid,
                 vcreated_by=current_user.vcode
             )
             
-            # Panggil fungsi controller departmentLab yang lu request
             departmentLabController.create_department_lab(
                 db=db, 
                 department_lab=dl_create_data, 
                 current_user=current_user
             )
             print(f"[AutoMap] Success linking Lab {new_lab.vname} to Dept ID {admin_access.nid_department}")
-        # ---------------------------------------------
 
-        # 2. Logging (Background Task)
+        # Logging (Background Task)
         background_tasks.add_task(
             auditLogController.create_activity_log_task,
             nid_user=current_user.nid,
@@ -156,7 +178,7 @@ def create_new_lab(
             target_model="Lab",
             target_identifier=new_lab.vcode,
             jbefore=None,
-            jafter=lab.model_dump(),
+            jafter=lab_data.model_dump(),
             ip=request.client.host,
             user_agent=request.headers.get("user-agent")
         )
@@ -164,34 +186,74 @@ def create_new_lab(
         return new_lab
 
     except ValueError as e:
-        # Kalau ada error validasi (misal kode lab duplikat)
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
-        # Error lain (database, dll)
         print(f"[Error Create Lab] {str(e)}")
-        raise HTTPException(status_code=500, detail="Terjadi kesalahan internal server.")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @router.put("/{lab_vcode}", response_model=schema.Lab)
-def update_existing_lab(
+async def update_existing_lab(
     lab_vcode: str, 
-    lab: schema.LabUpdate, 
-    request: Request,                 
-    background_tasks: BackgroundTasks, 
+    vcode: str = Form(...),
+    vname: str = Form(...),
+    vdesc: str = Form(...),
+    nid_building: int = Form(...),
+    vroom_number: str = Form(...),
+    ncapacity: int = Form(...),
+    nstatus: int = Form(...),
+    hero_image: UploadFile = FastAPIFile(None),
+    gallery_images: List[UploadFile] = FastAPIFile(None),
+    existing_gallery_vcodes: List[str] = Form(None),
+    request: Request = None,                 
+    background_tasks: BackgroundTasks = None, 
     db: Session = Depends(get_db), 
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_forbidden_roles(db, current_user)
     
-    db_lab_before = labController.get_lab_by_code(db, lab_code=lab_vcode) #
+    print(f"\n[Update Lab API] Request for Lab: {lab_vcode}")
+
+    db_lab_before = labController.get_lab_by_code(db, lab_code=lab_vcode)
     if not db_lab_before:
         raise HTTPException(status_code=404, detail="Lab not found")
     
     jbefore = Lab.model_validate(db_lab_before).model_dump(mode='json')
 
     try:
-        lab.vmodified_by = current_user.vcode #
+        # Validate Max Images
+        new_gallery_count = len(gallery_images) if gallery_images else 0
+        existing_gallery_count = len(existing_gallery_vcodes) if existing_gallery_vcodes else 0
         
-        db_lab = labController.update_lab(db=db, lab_vcode=lab_vcode, lab=lab, current_user=current_user) #
+        if (new_gallery_count + existing_gallery_count) > 24:
+             raise HTTPException(status_code=400, detail="Maksimal 24 gambar galeri yang diperbolehkan.")
+
+        # Prepare Lab Data
+        lab_data = schema.LabUpdate(
+            vcode=vcode,
+            vname=vname,
+            vdesc=vdesc,
+            nid_building=nid_building,
+            vroom_number=vroom_number,
+            ncapacity=ncapacity,
+            nstatus=nstatus,
+            vmodified_by=current_user.vcode
+        )
+        
+        # Call Controller with Files
+        db_lab = await labController.update_lab_with_files(
+            db=db,
+            lab_vcode=lab_vcode,
+            lab=lab_data,
+            current_user=current_user,
+            request=request,
+            hero_image=hero_image,
+            gallery_images=gallery_images,
+            existing_gallery_vcodes=existing_gallery_vcodes
+        )
         
         if db_lab is None: 
             raise HTTPException(status_code=404, detail="Lab not found")
@@ -203,7 +265,7 @@ def update_existing_lab(
             target_model="Lab",
             target_identifier=db_lab.vcode,
             jbefore=jbefore,
-            jafter=lab.model_dump(),
+            jafter=lab_data.model_dump(),
             ip=request.client.host,
             user_agent=request.headers.get("user-agent")
         )
@@ -211,6 +273,13 @@ def update_existing_lab(
         return db_lab
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Error Update Lab] {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 @router.delete("/{lab_vcode}", status_code=status.HTTP_204_NO_CONTENT)
 def soft_delete_lab(
@@ -222,49 +291,40 @@ def soft_delete_lab(
 ):
     check_forbidden_roles(db, current_user)
     
-    # --- AMBIL DATA SEBELUM DELETE ---
-    db_lab_before = labController.get_lab_by_code(db, lab_code=lab_vcode) #
+    db_lab_before = labController.get_lab_by_code(db, lab_code=lab_vcode)
     if not db_lab_before:
         raise HTTPException(status_code=404, detail="Lab not found")
         
     jbefore = Lab.model_validate(db_lab_before).model_dump(mode='json')
-    # ---------------------------------
     
-    # Panggil controller asli
-    deleted_lab = labController.delete_lab(db=db, lab_vcode=lab_vcode, current_user=current_user) #
+    deleted_lab = labController.delete_lab(db=db, lab_vcode=lab_vcode, current_user=current_user)
     
-    if deleted_lab is None: #
+    if deleted_lab is None:
         raise HTTPException(status_code=404, detail="Lab not found")
 
-    # --- BUAT 'jafter' DARI HASIL UPDATE ---
     jafter = Lab.model_validate(deleted_lab).model_dump(mode='json')
-    # --------------------------------------
 
-    # --- LOG ACTIVITY (BACKGROUND) ---
     background_tasks.add_task(
         auditLogController.create_activity_log_task,
         nid_user=current_user.nid,
         action="DELETE",
         target_model="Lab",
         target_identifier=lab_vcode,
-        jbefore=jbefore, # Data sebelum (nstatus=1)
-        jafter=jafter,   # Data sesudah (nstatus=0)
+        jbefore=jbefore,
+        jafter=jafter,
         ip=request.client.host,
         user_agent=request.headers.get("user-agent")
     )
-    # ---------------------------------
     
     return
 
 @router.get("/all-for-dropdown/", response_model=schema.LabDropdownResponse)
 def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    # check_forbidden_roles(db, current_user)
     labs_data = labController.get_all_labs_for_dropdown(db=db)
     return labs_data
 
 @router.get("/all-active-for-dropdown/", response_model=schema.LabDropdownResponse)
 def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    # check_forbidden_roles(db, current_user)
     labs_data = labController.get_all_active_labs_for_dropdown(db=db)
     return labs_data
 
