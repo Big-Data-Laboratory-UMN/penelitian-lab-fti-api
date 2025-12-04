@@ -19,5 +19,12 @@ pydantic
 fastapi-mail 
 pytz
 fastapi-apscheduler
-
 aiofiles
+
+# --- AI & Machine Learning ---
+torch
+torchvision
+torchaudio
+scikit-learn
+transformers
+accelerate

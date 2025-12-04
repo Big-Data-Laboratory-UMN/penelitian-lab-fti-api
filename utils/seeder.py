@@ -120,6 +120,8 @@ def seed_data():
         if db.query(User).count() == 0:
             print("Tabel 'tbls_users' kosong, memulai seeding user...")
             users_to_seed = [
+                {'vcode': '66850', 'vname': 'M. Fadhlan', 'vphone': '6285210647118', 'vemail': 'muhammad.fadhlan@student.umn.ac.id', 'vaddress': 'ABC', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
+                {'vcode': '66851', 'vname': 'Sheera Anela', 'vphone': '6285210647118', 'vemail': 'sheera.anela@student.umn.ac.id', 'vaddress': 'ABC', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
                 {'vcode': '66852', 'vname': 'Samuel Rai', 'vphone': '6285210647118', 'vemail': 'samuel.rai@student.umn.ac.id', 'vaddress': 'ABC', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
                 {'vcode': '66853', 'vname': 'Admin TI', 'vphone': '628111111111', 'vemail': 'samuelraycontact1@gmail.com', 'vaddress': 'Dept Office', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
                 {'vcode': '66854', 'vname': 'ADMIN SI', 'vphone': '628222222222', 'vemail': 'samuelrayraz12@gmail.com', 'vaddress': 'Lab Office', 'vpassword': '$argon2id$v=19$m=65536,t=3,p=4$iLF2rvUeQ0ipdS4F4BxjDA$hmbqKwgQKDh87EOQhpFW1sBHX4Ik8VKb0TsbgtSzEuw', 'nstatus': 1, 'vcreated_by': 'system-migration'},
@@ -167,6 +169,38 @@ def seed_data():
 
             # --- Logic 1: Superadmin (66852) ---
             # Role SA, Dept FTI, semua Lab
+            user_sa = users.get("66850")
+            role_sa = roles.get("SA")
+            dept_fti = departments.get("FTI")
+            if user_sa and role_sa and dept_fti:
+                for lab_code in all_lab_codes:
+                    lab_obj = labs.get(lab_code)
+                    if lab_obj:
+                        seeds.append(UserAccess(
+                            vcode=str(uuid.uuid4()),
+                            nid_user=user_sa.nid,
+                            nid_role=role_sa.nid,
+                            nid_department=dept_fti.nid, # Dept FTI
+                            nid_lab=lab_obj.nid,           # Tiap Lab
+                            nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
+                        ))
+
+            user_sa = users.get("66851")
+            role_sa = roles.get("SA")
+            dept_fti = departments.get("FTI")
+            if user_sa and role_sa and dept_fti:
+                for lab_code in all_lab_codes:
+                    lab_obj = labs.get(lab_code)
+                    if lab_obj:
+                        seeds.append(UserAccess(
+                            vcode=str(uuid.uuid4()),
+                            nid_user=user_sa.nid,
+                            nid_role=role_sa.nid,
+                            nid_department=dept_fti.nid, # Dept FTI
+                            nid_lab=lab_obj.nid,           # Tiap Lab
+                            nstatus=1, vcreated_by="system-migration", dcreated_at=datetime.utcnow()
+                        ))
+
             user_sa = users.get("66852")
             role_sa = roles.get("SA")
             dept_fti = departments.get("FTI")

