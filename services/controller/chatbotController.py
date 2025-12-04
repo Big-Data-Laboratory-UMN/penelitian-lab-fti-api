@@ -26,7 +26,7 @@ def load_kb():
     session = SessionLocal()
     try:
         # Using SQLAlchemy model
-        rows = session.query(knowledge_base).all()
+        rows = session.query(knowledge_base).filter(knowledge_base.nstatus == 1).all()
         kb = []
         contexts = []
         for r in rows:
@@ -40,7 +40,7 @@ def load_kb():
             if ctx:
                 contexts.append(ctx.lower())
         
-        print(f"[SUCCESS] Loaded {len(kb)} KB entries")
+        print(f"[SUCCESS] Loaded {len(kb)} KnowledgeBase entries")
         if contexts:
             tfidf = TfidfVectorizer(lowercase=True)
             tfidf_matrix = tfidf.fit_transform(contexts)
@@ -247,4 +247,4 @@ def get_health_status() -> Dict[str, Any]:
 def startup_chatbot():
     load_kb()
     load_gpt2()
-    print("LabBot FTI UMN SIAP PAKAI MODEL + KB + SLOT HARI APAPUN!")
+    print("LabBot FTI UMN SIAP PAKAI MODEL + KnowledgeBase + SLOT HARI APAPUN!")
