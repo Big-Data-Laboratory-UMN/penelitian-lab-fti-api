@@ -1675,3 +1675,19 @@ def _get_users_by_scope_logic(db: Session, current_user: models.User, only_activ
     data = query.all()
     
     return {"data": data}
+
+
+async def get_current_active_user_optional(
+    request: Request, 
+    response: Response, 
+    db: Session = Depends(get_db)
+):
+    """
+    Dependency baru: Mirip get_current_active_user_from_cookie,
+    tapi TIDAK raise error jika token tidak ada atau invalid.
+    Return None jika gagal auth.
+    """
+    try:
+        return await get_current_active_user_from_cookie(request, response, db)
+    except HTTPException:
+        return None

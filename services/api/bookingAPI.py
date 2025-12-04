@@ -1,6 +1,6 @@
 from fastapi import (
     APIRouter, Depends, HTTPException, Query,
-    Form, File, UploadFile, Request, status, BackgroundTasks
+    Form, File, UploadFile, Request, status, BackgroundTasks, Header
 )
 from sqlalchemy.orm import Session
 from typing import List, Optional, Set
@@ -487,15 +487,24 @@ def read_all_bookings_by_month_api(
     status: Optional[int] = None,
     nidLab: Optional[int] = None, 
     nidFacility: Optional[int] = None,
+    x_chatbot_secret: Optional[str] = Header(None, alias="X-Chatbot-Secret"),
     db: Session = Depends(get_db),
-    current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: Optional[usersSchema.User] = Depends(usersController.get_current_active_user_optional)
 ):
-    # BYPASS AUTH KHUSUS CHATBOT
-    if request.headers.get("X-Chatbot-Secret") == "umnfti2025gacor":
-        current_user = type('obj', (object,), {'nid': 1, 'vemail': 'chatbot@umn.ac.id'})  # fake user
-        user_roles = {"SA", "ADM", "PIC"}  # kasih semua akses
+    # --- LOGIC BYPASS AUTH UNTUK CHATBOT ---
+    if x_chatbot_secret == "umnfti2025gacor":
+        # Bypass: Anggap sebagai Superadmin (SA) agar bisa lihat semua data
+        user_roles = {"SA"}
+        # current_user bisa None, controller harus handle ini (get_managed_lab_ids aman utk SA)
     else:
+        # Normal Flow: Wajib login
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated"
+            )
         user_roles = check_management_access(db, current_user)
+    # ---------------------------------------
     
     try:
         _, num_days = calendar.monthrange(year, month)
@@ -507,7 +516,7 @@ def read_all_bookings_by_month_api(
     # Panggil controller BARU
     return bookingController.get_all_bookings_no_pagination(
         db=db,
-        current_user=current_user,
+        current_user=current_user, # Bisa None jika bypass
         user_roles=user_roles,
         vsearch=vsearch,
         nstatus=status,

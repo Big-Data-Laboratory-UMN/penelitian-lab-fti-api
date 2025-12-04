@@ -142,7 +142,7 @@ async def get_bookings_by_month(year: int, month: int):
     try:
         async with httpx.AsyncClient() as client:
             headers = {"X-Chatbot-Secret": "umnfti2025gacor"}  # ← ini kunci rahasia
-            url = f"http://127.0.0.1:8000/booking/by-month?month={month}&year={year}"
+            url = f"http://localhost:8000/booking/by-month?month={month}&year={year}"
             r = await client.get(url, headers=headers, timeout=10.0)
             if r.status_code == 200:
                 return r.json()  # list booking
