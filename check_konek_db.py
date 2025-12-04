@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine, text
 
-# Ganti PASSWORD_LU dengan password asli lu
 DATABASE_URL = ""
 
 try:
