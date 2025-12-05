@@ -5,7 +5,7 @@ from datetime import datetime
 from fastapi import UploadFile, Request, HTTPException
 from typing import List, Optional, Set
 from ..models import labModel as models
-from ..models import departmentLabModel, userAccessModel, rolesModel, labGalleryModel, filesModel
+from ..models import departmentLabModel, departmentModel, userAccessModel, rolesModel, labGalleryModel, filesModel
 from ..schemas import labSchema as schema, usersSchema
 from ..controller import fileController
 
@@ -116,6 +116,18 @@ def get_lab(db: Session, lab_id: int):
     # Add Building Name from relationship
     if lab.building:
         response.building_name = lab.building.vname
+    
+        # Add Department Name via DepartmentLab
+    dept_lab = db.query(departmentLabModel.DepartmentLab).filter(
+        departmentLabModel.DepartmentLab.nid_lab == lab_id,
+        departmentLabModel.DepartmentLab.nstatus == 1
+    ).first()
+    if dept_lab:
+        dept = db.query(departmentModel.Department).filter(
+            departmentModel.Department.nid == dept_lab.nid_department
+        ).first()
+        if dept:
+            response.department_name = dept.vname
     
     # 1. Get Hero Image
     hero = db.query(labGalleryModel.LabGallery).filter(
@@ -560,6 +572,19 @@ def get_public_labs(
     # Build response with hero images
     data = []
     for lab in labs:
+        # Get Department Name via DepartmentLab
+        dept_name = None
+        dept_lab = db.query(departmentLabModel.DepartmentLab).filter(
+            departmentLabModel.DepartmentLab.nid_lab == lab.nid,
+            departmentLabModel.DepartmentLab.nstatus == 1
+        ).first()
+        if dept_lab:
+            dept = db.query(departmentModel.Department).filter(
+                departmentModel.Department.nid == dept_lab.nid_department
+            ).first()
+            if dept:
+                dept_name = dept.vname
+        
         # Get hero image for this lab
         hero = db.query(labGalleryModel.LabGallery).filter(
             labGalleryModel.LabGallery.nid_lab == lab.nid,
@@ -577,7 +602,8 @@ def get_public_labs(
             vname=lab.vname,
             vdesc=lab.vdesc,
             ncapacity=lab.ncapacity,
-            hero_image=hero_image_url
+            hero_image=hero_image_url,
+            department_name=dept_name  # Tambah ini
         ))
     
     return {"data": data, "total": total}

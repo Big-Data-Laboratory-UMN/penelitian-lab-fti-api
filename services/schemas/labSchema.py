@@ -55,6 +55,7 @@ class LabDetail(Lab):
     hero_image_name: Optional[str] = None
     gallery_images: Optional[List[LabGalleryItem]] = None
     building_name: Optional[str] = None
+    department_name: Optional[str] = None
 
 class LabResponse(BaseModel):
     data: List[Lab]
@@ -67,7 +68,8 @@ class LabPublic(BaseModel):
     vname: str
     vdesc: str
     ncapacity: int
-    hero_image: Optional[str] = None  # URL path to hero image
+    hero_image: Optional[str] = None
+    department_name: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -2164,3 +2164,69 @@ def get_lab_utilization_stats(db: Session):
     return stats
 
 
+# --- PUBLIC ENDPOINTS ---
+
+def get_public_bookings_by_lab(
+    db: Session,
+    lab_vcode: str,
+    dstart: datetime,
+    dend: datetime,
+    nid_facility: Optional[int] = None
+):
+    """
+    Get approved/done bookings for a specific lab (public access).
+    Only returns: Approved (1), WaitingForDoc (4), Done (5) bookings.
+    Also includes Maintenance (nbooking_type=1).
+    """
+    # Get lab by vcode
+    lab = db.query(labModel.Lab).filter(
+        labModel.Lab.vcode == lab_vcode,
+        labModel.Lab.nstatus == 1
+    ).first()
+    
+    if not lab:
+        raise HTTPException(status_code=404, detail="Lab not found")
+    
+    # Query bookings for this lab
+    # Status: 1=Approved
+    approved_statuses = [1]
+    
+    query = db.query(
+        Booking.vcode,
+        Booking.dstart,
+        Booking.dend,
+        Booking.vactivity,
+        Booking.nstatus,
+        Booking.nbooking_type,
+        facilityModel.Facility.vname.label('facility_name')
+    ).join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).join(
+        facilityModel.Facility, LabFacility.nid_facility == facilityModel.Facility.nid
+    ).filter(
+        LabFacility.nid_lab == lab.nid,
+        Booking.nstatus.in_(approved_statuses),
+        Booking.dstart < dend,
+        Booking.dend > dstart
+    )
+
+    if nid_facility:
+        query = query.filter(LabFacility.nid == nid_facility)
+
+    results = query.order_by(
+        Booking.dstart.asc()
+    ).all()
+    
+    # Convert to list of dicts matching BookingPublicSchema
+    return [
+        {
+            "vcode": r.vcode,
+            "dstart": r.dstart,
+            "dend": r.dend,
+            "vactivity": r.vactivity,
+            "nstatus": r.nstatus,
+            "nbooking_type": r.nbooking_type,
+            "facility_name": r.facility_name
+        }
+        for r in results
+    ]

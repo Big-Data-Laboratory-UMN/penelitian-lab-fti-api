@@ -237,3 +237,16 @@ def read_scope_active_departments_for_dropdown(
     # check_adm_sa_only(db, current_user)
     departments_data = departmentController.get_scoped_active_departments_for_dropdown(db=db, current_user=current_user)
     return departments_data
+
+@router.get("/public/all-active", response_model=schema.DepartmentDropdownResponse)
+def read_public_active_departments(db: Session = Depends(get_db)):
+    """
+    Get all active departments for public view (no auth required).
+    Excludes faculty-level departments from filter display.
+    """
+    departments_data = departmentController.get_all_active_departments_for_dropdown(db=db)
+    
+    excluded_names = ["fakultas teknik dan informatika", "fakultas teknik & informatika"]
+    filtered_data = [d for d in departments_data["data"] if d.vname.lower() not in excluded_names]
+    
+    return {"data": filtered_data}

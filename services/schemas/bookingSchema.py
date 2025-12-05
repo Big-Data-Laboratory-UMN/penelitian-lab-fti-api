@@ -62,3 +62,17 @@ class DashboardStatsResponse(BaseModel):
     cancelled_count: int
     done_count: int
     waiting_doc_count: int
+
+
+class BookingPublicSchema(BaseModel):
+    """Simplified booking schema for public calendar display."""
+    vcode: str
+    dstart: datetime
+    dend: datetime
+    vactivity: str
+    nstatus: int
+    nbooking_type: int
+    facility_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
