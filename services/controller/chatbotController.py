@@ -11,6 +11,13 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from services.database import SessionLocal
 from services.models.KnowledgeBaseModel import knowledge_base
 
+import env
+env.load_env()
+import os
+
+BASE_URL_BE = os.getenv("BASE_URL_BE")
+
+
 # ---------- Global State ----------
 kb: List[dict] = []
 tfidf: Optional[TfidfVectorizer] = None
@@ -142,7 +149,7 @@ async def get_bookings_by_month(year: int, month: int):
     try:
         async with httpx.AsyncClient() as client:
             headers = {"X-Chatbot-Secret": "umnfti2025gacor"}  # ← ini kunci rahasia
-            url = f"http://localhost:8000/booking/by-month?month={month}&year={year}"
+            url = f"http://{BASE_URL_BE}/booking/by-month?month={month}&year={year}"
             r = await client.get(url, headers=headers, timeout=10.0)
             if r.status_code == 200:
                 return r.json()  # list booking
