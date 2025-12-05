@@ -11,8 +11,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from services.database import SessionLocal
 from services.models.KnowledgeBaseModel import knowledge_base
 
-import env
-env.load_env()
+from dotenv import load_dotenv
+load_dotenv()
 import os
 
 BASE_URL_BE = os.getenv("BASE_URL_BE")
