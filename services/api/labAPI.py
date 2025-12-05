@@ -60,34 +60,37 @@ def read_all_labs(
     )
     return labs_data
 
-@router.get("/public/all", response_model=schema.LabResponse)
+@router.get("/public/all", response_model=schema.LabPublicResponse)
 def read_all_labs_public(
     skip: int = 0, 
-    limit: int = 10, 
+    limit: int = 100, 
     search: Optional[str] = None, 
     db: Session = Depends(get_db)
 ):
     """
-    Get all active labs for public view (no auth required).
+    Get all active labs for public view with hero image (no auth required).
     Only returns active labs (nstatus=1).
     """
-    labs_data = labController.get_labs(
-        db=db, skip=skip, limit=limit, search=search,
-        nstatus=1 # Force active only
+    labs_data = labController.get_public_labs(
+        db=db, skip=skip, limit=limit, search=search
     )
     return labs_data
 
-@router.get("/public/{lab_vcode}", response_model=schema.Lab)
+@router.get("/public/{lab_vcode}", response_model=schema.LabDetail)
 def get_lab_by_code_public(lab_vcode: str, db: Session = Depends(get_db)):
     """
-    Get lab details by code for public view (no auth required).
+    Get lab details by code for public view with hero/gallery images (no auth required).
     """
-    lab = labController.get_lab_by_code(db=db, lab_code=lab_vcode)
-    if lab is None or lab.nstatus != 1:
+    # First get basic lab to find nid
+    lab_basic = labController.get_lab_by_code(db=db, lab_code=lab_vcode)
+    if lab_basic is None or lab_basic.nstatus != 1:
         raise HTTPException(status_code=404, detail="Lab not found or inactive")
-    return lab
+    
+    # Then get full details with images
+    lab_detail = labController.get_lab(db=db, lab_id=lab_basic.nid)
+    return lab_detail
 
-@router.get("/{lab_id}", response_model=schema.Lab)
+@router.get("/{lab_id}", response_model=schema.LabDetail)
 def get_lab_by_id(lab_id: int, db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     check_forbidden_roles(db, current_user)
     lab = labController.get_lab(db=db, lab_id=lab_id)
@@ -324,7 +327,7 @@ def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: user
     return labs_data
 
 @router.get("/all-active-for-dropdown/", response_model=schema.LabDropdownResponse)
-def read_all_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
+def read_all_active_labs_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
     labs_data = labController.get_all_active_labs_for_dropdown(db=db)
     return labs_data
 

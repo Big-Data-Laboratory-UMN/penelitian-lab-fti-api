@@ -42,8 +42,38 @@ class Lab(BaseModel):
     class Config:
         from_attributes = True
 
+class LabGalleryItem(BaseModel):
+    vcode: str
+    vname: str
+    vtype: str
+    vpath: str
+    nsize: Optional[float] = None
+
+class LabDetail(Lab):
+    hero_image: Optional[str] = None
+    hero_image_size: Optional[float] = None
+    hero_image_name: Optional[str] = None
+    gallery_images: Optional[List[LabGalleryItem]] = None
+    building_name: Optional[str] = None
+
 class LabResponse(BaseModel):
     data: List[Lab]
+    total: int
+
+class LabPublic(BaseModel):
+    """Schema for public labs display with hero image thumbnail."""
+    nid: int
+    vcode: str
+    vname: str
+    vdesc: str
+    ncapacity: int
+    hero_image: Optional[str] = None  # URL path to hero image
+
+    class Config:
+        from_attributes = True
+
+class LabPublicResponse(BaseModel):
+    data: List[LabPublic]
     total: int
 
 class LabDropdown(BaseModel):

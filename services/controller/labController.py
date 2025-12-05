@@ -104,7 +104,51 @@ def get_lab_by_code(db: Session, lab_code: str):
 
 
 def get_lab(db: Session, lab_id: int):
-    return db.query(models.Lab).filter(models.Lab.nid == lab_id).first()
+    lab = db.query(models.Lab).filter(models.Lab.nid == lab_id).first()
+    if not lab:
+        return None
+    
+    # Construct Response
+    # Use Lab.model_validate to ignore gallery_images relationship in ORM
+    lab_base = schema.Lab.model_validate(lab)
+    response = schema.LabDetail(**lab_base.model_dump())
+    
+    # Add Building Name from relationship
+    if lab.building:
+        response.building_name = lab.building.vname
+    
+    # 1. Get Hero Image
+    hero = db.query(labGalleryModel.LabGallery).filter(
+        labGalleryModel.LabGallery.nid_lab == lab_id,
+        labGalleryModel.LabGallery.ntype == 1,
+        labGalleryModel.LabGallery.nstatus == 1
+    ).first()
+    
+    if hero and hero.file:
+         response.hero_image = f"/files/vcode/{hero.file.vcode}/raw"
+         response.hero_image_size = hero.file.nsize
+         response.hero_image_name = hero.file.vname
+
+    # 2. Get Gallery Images
+    galleries = db.query(labGalleryModel.LabGallery).filter(
+        labGalleryModel.LabGallery.nid_lab == lab_id,
+        labGalleryModel.LabGallery.ntype == 2,
+        labGalleryModel.LabGallery.nstatus == 1
+    ).all()
+    
+    gallery_list = []
+    for item in galleries:
+        if item.file:
+            gallery_list.append(schema.LabGalleryItem(
+                vcode=item.file.vcode,
+                vname=item.file.vname,
+                vtype=item.file.vtype,
+                vpath=f"/files/vcode/{item.file.vcode}/raw",nsize=item.file.nsize          
+            ))
+            
+    response.gallery_images = gallery_list
+    
+    return response
 
 
 # --- NEW: File Handling Functions (Booking Pattern) ---
@@ -141,7 +185,8 @@ async def create_lab_with_files(
             )
             hero_vcode = db_hero_file.vcode
             uploaded_file_ids.append(db_hero_file.nid)
-            processed_filenames.add(hero_image.filename)
+            # Note: Don't add hero filename to processed_filenames
+            # Hero and gallery can have the same file
             print(f"[LabController] Hero saved: {hero_vcode}")
         
         # 2. Save Gallery Images (with deduplication)
@@ -165,7 +210,7 @@ async def create_lab_with_files(
                 )
                 gallery_vcodes.append(db_gallery_file.vcode)
                 uploaded_file_ids.append(db_gallery_file.nid)
-                processed_filenames.add(img.filename)
+                processed_filenames.add(img.filename)  # Dedup only within gallery
                 print(f" - [Saved] {img.filename} -> {db_gallery_file.vcode}")
         
         # 3. Flush files to DB (but don't commit yet)
@@ -480,6 +525,61 @@ def get_labs(
     query = query.order_by(models.Lab.dsort_at.desc())
     data = query.offset(skip).limit(limit).all()
 
+    return {"data": data, "total": total}
+
+
+def get_public_labs(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    search: str | None = None,
+):
+    """
+    Get all active labs for public view with hero image.
+    No authentication required.
+    """
+    # Build Base Query - only active labs
+    query = db.query(models.Lab).filter(models.Lab.nstatus == 1)
+    
+    # Apply Search Filter
+    if search:
+        search_filter = or_(
+            models.Lab.vname.ilike(f"%{search}%"),
+            models.Lab.vcode.ilike(f"%{search}%"),
+            models.Lab.vdesc.ilike(f"%{search}%")
+        )
+        query = query.filter(search_filter)
+    
+    # Get total count
+    total = query.count()
+    
+    # Get labs
+    query = query.order_by(models.Lab.vname.asc())
+    labs = query.offset(skip).limit(limit).all()
+    
+    # Build response with hero images
+    data = []
+    for lab in labs:
+        # Get hero image for this lab
+        hero = db.query(labGalleryModel.LabGallery).filter(
+            labGalleryModel.LabGallery.nid_lab == lab.nid,
+            labGalleryModel.LabGallery.ntype == 1,  # Hero image
+            labGalleryModel.LabGallery.nstatus == 1
+        ).first()
+        
+        hero_image_url = None
+        if hero and hero.file:
+            hero_image_url = f"/files/vcode/{hero.file.vcode}/raw"
+        
+        data.append(schema.LabPublic(
+            nid=lab.nid,
+            vcode=lab.vcode,
+            vname=lab.vname,
+            vdesc=lab.vdesc,
+            ncapacity=lab.ncapacity,
+            hero_image=hero_image_url
+        ))
+    
     return {"data": data, "total": total}
 
 

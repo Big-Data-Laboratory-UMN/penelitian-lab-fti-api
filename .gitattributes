@@ -1,0 +1,18 @@
+# Anggap semua file adalah text, dan paksa pake LF.
+* text=auto eol=lf
+
+# Bahaya! Jangan biarkan Git ngubah spasi/enter di file ini, 
+*.{png,jpg,jpeg,gif,webp,ico,svg} binary
+*.{woff,woff2,ttf,eot,otf} binary
+*.{mp4,mp3,wav} binary
+*.{pdf,doc,docx,xls,xlsx,ppt,pptx} binary
+*.{zip,tar,gz,7z,rar} binary
+*.{exe,dll,so,dylib,class} binary
+
+# Script bawaan Windows (.bat/.cmd) aslinya emang butuh CRLF biar jalan mulus.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Pastiin ini LF biar bisa jalan di Docker/Linux tanpa error '\r not found'.
+*.sh text eol=lf
