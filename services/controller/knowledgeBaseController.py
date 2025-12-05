@@ -14,13 +14,15 @@ def get_all_knowledge_base(
     skip: int = 0,
     limit: int = 10,
     search: str | None = None,
-    category: str | None = None,
-    nstatus: int | None = None
+    vcategory: str | None = None,
+    vcontext: str | None = None,
+    vanswer: str | None = None,
+    status: int | None = None
 ):
     query = db.query(models.knowledge_base)
 
-    if nstatus is not None:
-        query = query.filter(models.knowledge_base.nstatus == nstatus)
+    if status is not None:
+        query = query.filter(models.knowledge_base.nstatus == status)
 
     if search:
         search_filter = or_(
@@ -30,8 +32,14 @@ def get_all_knowledge_base(
         )
         query = query.filter(search_filter)
 
-    if category:
-        query = query.filter(models.knowledge_base.vcategory.ilike(f"%{category}%"))
+    if vcategory:
+        query = query.filter(models.knowledge_base.vcategory.ilike(f"%{vcategory}%"))
+
+    if vcontext:
+        query = query.filter(models.knowledge_base.vcontext.ilike(f"%{vcontext}%"))
+
+    if vanswer:
+        query = query.filter(models.knowledge_base.vanswer.ilike(f"%{vanswer}%"))
 
     total = query.count()
     

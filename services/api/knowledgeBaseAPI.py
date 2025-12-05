@@ -32,13 +32,15 @@ def read_all_knowledge_base(
     skip: int = 0,
     limit: int = 10,
     search: Optional[str] = None,
-    category: Optional[str] = None,
-    nstatus: Optional[int] = None,
+    vcategory: Optional[str] = None,
+    vcontext: Optional[str] = None,
+    vanswer: Optional[str] = None,
+    status: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
     check_sa_only(db, current_user)
-    return knowledgeBaseController.get_all_knowledge_base(db, skip, limit, search, category, nstatus)
+    return knowledgeBaseController.get_all_knowledge_base(db, skip, limit, search, vcategory, vcontext, vanswer, status)
 
 @router.get("/get-all/", response_model=List[schema.KnowledgeBase])
 def read_all_knowledge_base_no_pagination(
