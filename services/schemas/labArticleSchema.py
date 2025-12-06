@@ -23,7 +23,7 @@ class ArticleTagSchema(ArticleTagBase):
 
 class LabArticleBase(BaseModel):
     nid_lab: int
-    vtitle: str = Field(..., max_length=255)
+    vtitle: str = Field(..., max_length=50)
     vexcerpt: Optional[str] = Field(None, max_length=500)
     vcontent: str = Field(..., max_length=100000)
     vthumbnail: Optional[str] = Field(None, max_length=500)
@@ -51,7 +51,8 @@ class LabArticleCreate(LabArticleBase):
 
 
 class LabArticleUpdate(BaseModel):
-    vtitle: Optional[str] = Field(None, max_length=255)
+    nid_lab: Optional[int] = None
+    vtitle: Optional[str] = Field(None, max_length=50)
     vexcerpt: Optional[str] = Field(None, max_length=500)
     vcontent: Optional[str] = Field(None, max_length=100000)
     vthumbnail: Optional[str] = Field(None, max_length=500)

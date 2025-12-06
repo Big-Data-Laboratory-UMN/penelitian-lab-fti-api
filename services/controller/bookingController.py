@@ -170,6 +170,103 @@ def trigger_update_overdue_bookings(db: Session):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update overdue bookings: {str(e)}")
 
+
+# --- PRECISE BOOKING EXPIRATION SCHEDULING ---
+
+def expire_single_booking(booking_id: int, db_factory):
+    """
+    Expire a single approved booking by its ID (change from status 1 to 4).
+    Called by APScheduler at the exact end time.
+    """
+    db = db_factory()
+    try:
+        print(f"\n[BOOKING EXPIRE] Expiring booking ID: {booking_id}")
+        now = now_wib().replace(tzinfo=None)
+        
+        booking = db.query(Booking).filter(
+            Booking.nid == booking_id,
+            Booking.nstatus == 1  # Must still be Approved
+        ).first()
+        
+        if booking:
+            booking.nstatus = 4  # Set to Waiting For Documentation
+            booking.vmodified_by = "SYSTEM_SCHEDULED"
+            booking.dsort_at = now
+            db.commit()
+            print(f"[BOOKING EXPIRE SUCCESS] Booking ID {booking_id} expired at {now}")
+            return True
+        else:
+            print(f"[BOOKING EXPIRE SKIP] Booking ID {booking_id} not found or not Approved")
+            return False
+            
+    except Exception as e:
+        print(f"[BOOKING EXPIRE FAILED] Error expiring booking ID {booking_id}: {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+
+def schedule_booking_expiration(scheduler, db_factory, booking_id: int, end_datetime):
+    """
+    Schedule a booking to expire at its end time using APScheduler date trigger.
+    
+    Args:
+        scheduler: APScheduler instance from app.state.scheduler
+        db_factory: Database session factory (SessionLocal)
+        booking_id: The booking's ID
+        end_datetime: The datetime when booking ends (naive datetime in WIB)
+    """
+    WIB = pytz.timezone("Asia/Jakarta")
+    
+    # Ensure we have timezone-aware datetime for scheduler
+    if end_datetime.tzinfo is None:
+        run_date = WIB.localize(end_datetime)
+    else:
+        run_date = end_datetime
+    
+    job_id = f"expire_booking_{booking_id}"
+    
+    try:
+        # Remove existing job if any (in case of reschedule)
+        try:
+            scheduler.remove_job(job_id)
+            print(f"[SCHEDULER] Removed existing job: {job_id}")
+        except:
+            pass  # Job didn't exist
+        
+        # Add job with 'date' trigger for precise timing
+        scheduler.add_job(
+            expire_single_booking,
+            'date',
+            run_date=run_date,
+            args=[booking_id, db_factory],
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=300  # 5 minutes grace period
+        )
+        print(f"[SCHEDULER] ✅ Scheduled booking ID {booking_id} to expire at {run_date}")
+        return True
+        
+    except Exception as e:
+        print(f"[SCHEDULER] ❌ Failed to schedule booking expiration ID {booking_id}: {e}")
+        return False
+
+
+def cancel_scheduled_booking_expiration(scheduler, booking_id: int):
+    """
+    Cancel a scheduled booking expiration job.
+    """
+    job_id = f"expire_booking_{booking_id}"
+    try:
+        scheduler.remove_job(job_id)
+        print(f"[SCHEDULER] Removed booking expiration job: {job_id}")
+        return True
+    except Exception as e:
+        print(f"[SCHEDULER] Job not found or error removing: {job_id}")
+        return False
+
+
 # --- FUNGSI CRUD ---
 
 def get_all_bookings(

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Set
 from datetime import datetime
 
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from utils import email_service
 
 # --- IMPORT UDAH DI-UPDATE ---
@@ -200,6 +200,19 @@ def approve_booking_api(
         current_user=current_user,
         user_roles=user_roles
     )
+    
+    # --- SCHEDULE BOOKING EXPIRATION ---
+    # When booking ends (dend), automatically change status from 1 to 4
+    if updated_booking.dend:
+        scheduler = request.app.state.scheduler if hasattr(request.app.state, 'scheduler') else None
+        if scheduler and scheduler.running:
+            bookingController.schedule_booking_expiration(
+                scheduler=scheduler,
+                db_factory=SessionLocal,
+                booking_id=updated_booking.nid,
+                end_datetime=updated_booking.dend
+            )
+    # ------------------------------------
     
     # --- AMBIL DATA SESUDAH UPDATE ---
     jafter = bookingSchema.BookingSchema.model_validate(updated_booking).model_dump(mode='json')

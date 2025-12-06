@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, case
 from typing import Optional, List, Set
-import uuid
+import re
 from datetime import datetime
 import pytz
 
@@ -12,14 +12,84 @@ from ..models import userAccessModel, rolesModel, departmentLabModel, labModel, 
 from ..schemas import labArticleSchema as schema
 from ..schemas import usersSchema
 
+WIB = pytz.timezone("Asia/Jakarta")
 
 def now_wib():
-    return datetime.now(pytz.timezone("Asia/Jakarta"))
+    return datetime.now(WIB)
 
 
-def generate_article_code():
-    """Generate unique article code"""
-    return f"ART-{uuid.uuid4().hex[:8].upper()}"
+def to_wib(dt: datetime) -> datetime:
+    """
+    Convert naive datetime to WIB timezone.
+    If datetime is naive (no timezone), treat it as WIB (what user selected).
+    If datetime has timezone, convert to WIB.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        # Naive datetime - assume it's already in WIB (user's local time)
+        return WIB.localize(dt)
+    else:
+        # Has timezone info - convert to WIB
+        return dt.astimezone(WIB)
+
+
+def generate_slug_from_title(title: str) -> str:
+    """
+    Convert title to URL-friendly slug.
+    Example: "Hello World! @2024" -> "hello-world-2024"
+    """
+    # Convert to lowercase
+    slug = title.lower()
+    # Replace spaces and special chars with dashes
+    slug = re.sub(r'[^a-z0-9]+', '-', slug)
+    # Remove leading/trailing dashes
+    slug = slug.strip('-')
+    # Collapse multiple dashes into one
+    slug = re.sub(r'-+', '-', slug)
+    # Limit length to 100 chars
+    slug = slug[:100]
+    return slug
+
+
+def get_unique_slug(db: Session, title: str, exclude_nid: int = None) -> str:
+    """
+    Generate unique slug from title. If duplicate exists, append -1, -2, etc.
+    exclude_nid: Exclude this article ID when checking for duplicates (for update)
+    """
+    base_slug = generate_slug_from_title(title)
+    
+    if not base_slug:
+        base_slug = "article"
+    
+    # Check if base slug exists
+    query = db.query(models.LabArticle).filter(
+        models.LabArticle.vcode == base_slug
+    )
+    if exclude_nid:
+        query = query.filter(models.LabArticle.nid != exclude_nid)
+    
+    if not query.first():
+        return base_slug
+    
+    # Find highest existing suffix
+    # Look for slugs like: base_slug, base_slug-1, base_slug-2, etc.
+    pattern = f"{base_slug}-%"
+    existing = db.query(models.LabArticle.vcode).filter(
+        models.LabArticle.vcode.like(pattern)
+    )
+    if exclude_nid:
+        existing = existing.filter(models.LabArticle.nid != exclude_nid)
+    existing = existing.all()
+    
+    max_suffix = 0
+    for (vcode,) in existing:
+        # Extract the suffix number
+        suffix_part = vcode[len(base_slug)+1:]
+        if suffix_part.isdigit():
+            max_suffix = max(max_suffix, int(suffix_part))
+    
+    return f"{base_slug}-{max_suffix + 1}"
 
 
 # --- SCOPE LOGIC HELPERS ---
@@ -232,6 +302,98 @@ def get_public_articles(
     return {"data": data, "total": total}
 
 
+def get_related_articles(db: Session, vcode: str, limit: int = 3):
+    """
+    Get related articles based on:
+    1. Priority: Articles with matching tags
+    2. Fallback: Articles from the same lab
+    Excludes the current article.
+    """
+    # Get the current article
+    current = db.query(models.LabArticle).filter(
+        models.LabArticle.vcode == vcode,
+        models.LabArticle.nstatus == 1
+    ).first()
+    
+    if not current:
+        return {"data": []}
+    
+    # Get current article's tags
+    current_tags = [tag.vtag for tag in current.tags]
+    
+    related_vcodes = set()
+    related_articles = []
+    
+    # Step 1: Find articles with matching tags (if article has tags)
+    if current_tags:
+        # Get article IDs that share at least one tag
+        matching_article_ids = db.query(models.ArticleTag.nid_article).filter(
+            models.ArticleTag.vtag.in_(current_tags),
+            models.ArticleTag.nid_article != current.nid
+        ).distinct().all()
+        
+        matching_ids = [aid for (aid,) in matching_article_ids]
+        
+        if matching_ids:
+            tag_related = db.query(
+                models.LabArticle,
+                labModel.Lab.vname.label('lab_name'),
+                usersModel.User.vname.label('author_name')
+            ).join(
+                labModel.Lab, models.LabArticle.nid_lab == labModel.Lab.nid
+            ).join(
+                usersModel.User, models.LabArticle.nid_user == usersModel.User.nid
+            ).filter(
+                models.LabArticle.nid.in_(matching_ids),
+                models.LabArticle.nstatus == 1
+            ).order_by(
+                models.LabArticle.dpublished_at.desc()
+            ).limit(limit).all()
+            
+            for article, lab_name, author_name in tag_related:
+                if article.vcode not in related_vcodes:
+                    related_vcodes.add(article.vcode)
+                    related_articles.append({
+                        "vcode": article.vcode,
+                        "vtitle": article.vtitle,
+                        "vthumbnail": article.vthumbnail,
+                        "lab_name": lab_name,
+                        "author_name": author_name,
+                    })
+    
+    # Step 2: If not enough, fill with articles from the same lab
+    if len(related_articles) < limit:
+        remaining = limit - len(related_articles)
+        exclude_vcodes = list(related_vcodes) + [vcode]
+        
+        lab_related = db.query(
+            models.LabArticle,
+            labModel.Lab.vname.label('lab_name'),
+            usersModel.User.vname.label('author_name')
+        ).join(
+            labModel.Lab, models.LabArticle.nid_lab == labModel.Lab.nid
+        ).join(
+            usersModel.User, models.LabArticle.nid_user == usersModel.User.nid
+        ).filter(
+            models.LabArticle.nid_lab == current.nid_lab,
+            models.LabArticle.nstatus == 1,
+            models.LabArticle.vcode.notin_(exclude_vcodes)
+        ).order_by(
+            models.LabArticle.dpublished_at.desc()
+        ).limit(remaining).all()
+        
+        for article, lab_name, author_name in lab_related:
+            related_articles.append({
+                "vcode": article.vcode,
+                "vtitle": article.vtitle,
+                "vthumbnail": article.vthumbnail,
+                "lab_name": lab_name,
+                "author_name": author_name,
+            })
+    
+    return {"data": related_articles}
+
+
 def create_article(
     db: Session,
     article: schema.LabArticleCreate,
@@ -247,18 +409,22 @@ def create_article(
     # If dpublished_at is in the future -> schedule (nstatus=2)
     now = now_wib()
     
-    if article.dpublished_at and article.dpublished_at > now:
+    # Convert dpublished_at to WIB timezone, then strip timezone for MySQL storage
+    scheduled_date = to_wib(article.dpublished_at).replace(tzinfo=None) if article.dpublished_at else None
+    now_naive = now.replace(tzinfo=None)
+    
+    if scheduled_date and scheduled_date > now_naive:
         # Future date = scheduled
         article_status = 2
-        publish_date = article.dpublished_at
+        publish_date = scheduled_date
     else:
         # Empty or past date = publish immediately
         article_status = 1
-        publish_date = now if not article.dpublished_at else article.dpublished_at
+        publish_date = now_naive if not scheduled_date else scheduled_date
     
-    # Create article
+    # Create article with slug from title
     db_article = models.LabArticle(
-        vcode=generate_article_code(),
+        vcode=get_unique_slug(db, article.vtitle),
         nid_lab=article.nid_lab,
         nid_user=current_user.nid,
         vtitle=article.vtitle,
@@ -307,13 +473,19 @@ def update_article(
     if not db_article:
         raise ValueError("Article not found")
     
-    # Check lab access
+    # Check lab access (current lab)
     if not check_lab_access(db, current_user, db_article.nid_lab):
         raise ValueError("You don't have access to update this article")
     
     # Update fields
     update_data = article.model_dump(exclude_unset=True)
     tags_data = update_data.pop('tags', None)
+    
+    # If changing lab, check access to new lab
+    new_lab_id = update_data.get('nid_lab')
+    if new_lab_id and new_lab_id != db_article.nid_lab:
+        if not check_lab_access(db, current_user, new_lab_id):
+            raise ValueError("You don't have access to move article to this lab")
     
     # Enforce Singleton Featured Logic if being set to 1
     if update_data.get('nis_featured') == 1:
@@ -322,6 +494,12 @@ def update_article(
             models.LabArticle.nis_featured == 1,
             models.LabArticle.nid != db_article.nid
         ).update({models.LabArticle.nis_featured: 0}, synchronize_session=False)
+    
+    # If title is being updated, regenerate the slug
+    new_title = update_data.get('vtitle')
+    if new_title and new_title != db_article.vtitle:
+        new_slug = get_unique_slug(db, new_title, exclude_nid=db_article.nid)
+        db_article.vcode = new_slug
     
     for field, value in update_data.items():
         if value is not None:
@@ -397,7 +575,8 @@ def publish_scheduled_articles(db: Session):
     Cron job function to publish scheduled articles.
     Articles with nstatus=2 (scheduled) and dpublished_at <= now will be set to nstatus=1 (published).
     """
-    now = now_wib()
+    # Use naive datetime for comparison since MySQL stores naive datetime
+    now = now_wib().replace(tzinfo=None)
     
     # Find articles that are scheduled (nstatus=2) and their publish time has passed
     scheduled_articles = db.query(models.LabArticle).filter(
@@ -417,3 +596,101 @@ def publish_scheduled_articles(db: Session):
         db.commit()
     
     return {"updated_count": updated_count, "articles": [a.vcode for a in scheduled_articles]}
+
+
+def publish_single_article(article_vcode: str, db_factory):
+    """
+    Publish a single scheduled article by its vcode.
+    Called by APScheduler at the exact scheduled time.
+    """
+    db = db_factory()
+    try:
+        print(f"\n[SCHEDULED PUBLISH] Publishing article: {article_vcode}")
+        now = now_wib().replace(tzinfo=None)
+        
+        article = db.query(models.LabArticle).filter(
+            models.LabArticle.vcode == article_vcode,
+            models.LabArticle.nstatus == 2  # Must still be scheduled
+        ).first()
+        
+        if article:
+            article.nstatus = 1  # Set to published
+            article.dmodified_at = now
+            article.vmodified_by = "SYSTEM_SCHEDULED"
+            db.commit()
+            print(f"[SCHEDULED PUBLISH SUCCESS] Article '{article_vcode}' published at {now}")
+            return True
+        else:
+            print(f"[SCHEDULED PUBLISH SKIP] Article '{article_vcode}' not found or already published")
+            return False
+            
+    except Exception as e:
+        print(f"[SCHEDULED PUBLISH FAILED] Error publishing article '{article_vcode}': {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+
+def schedule_article_publish(scheduler, db_factory, article_vcode: str, publish_datetime):
+    """
+    Schedule an article to be published at a specific time using APScheduler date trigger.
+    
+    Args:
+        scheduler: APScheduler instance from app.state.scheduler
+        db_factory: Database session factory (SessionLocal)
+        article_vcode: The article's unique code
+        publish_datetime: The datetime to publish (naive datetime in WIB)
+    """
+    from datetime import datetime as dt
+    import pytz
+    
+    WIB = pytz.timezone("Asia/Jakarta")
+    
+    # Ensure we have timezone-aware datetime for scheduler
+    if publish_datetime.tzinfo is None:
+        run_date = WIB.localize(publish_datetime)
+    else:
+        run_date = publish_datetime
+    
+    job_id = f"publish_article_{article_vcode}"
+    
+    try:
+        # Remove existing job if any (in case of reschedule)
+        try:
+            scheduler.remove_job(job_id)
+            print(f"[SCHEDULER] Removed existing job: {job_id}")
+        except:
+            pass  # Job didn't exist
+        
+        # Add job with 'date' trigger for precise timing
+        scheduler.add_job(
+            publish_single_article,
+            'date',
+            run_date=run_date,
+            args=[article_vcode, db_factory],
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=300  # 5 minutes grace period
+        )
+        print(f"[SCHEDULER] ✅ Scheduled article '{article_vcode}' to publish at {run_date}")
+        return True
+        
+    except Exception as e:
+        print(f"[SCHEDULER] ❌ Failed to schedule article '{article_vcode}': {e}")
+        return False
+
+
+def cancel_scheduled_article(scheduler, article_vcode: str):
+    """
+    Cancel a scheduled article publish job.
+    """
+    job_id = f"publish_article_{article_vcode}"
+    try:
+        scheduler.remove_job(job_id)
+        print(f"[SCHEDULER] Removed job: {job_id}")
+        return True
+    except Exception as e:
+        print(f"[SCHEDULER] Job not found or error removing: {job_id}")
+        return False
+

@@ -10,6 +10,8 @@ import asyncio
 import pytz
 from datetime import datetime
 
+jakarta_tz = pytz.timezone("Asia/Jakarta")
+
 Base.metadata.create_all(bind=engine)
 
 BASE_URL_FRONTEND = os.getenv("BASE_URL_FE", "http://localhost:3000")
@@ -84,14 +86,100 @@ async def lifespan(app: FastAPI):
             app.state.scheduler.add_job(
                 publish_scheduled_articles_job,    
                 'interval',                    
-                minutes=5,  # Check every 5 minutes                   
+                minutes=1,  # Check every 1 minute for faster publishing                   
                 id="job_publish_scheduled_articles",     
                 replace_existing=True,        
                 misfire_grace_time=60          
             )
-            print("✅ Job 'publish_scheduled_articles_job' berhasil ditambahkan, akan jalan tiap 5 menit.")
+            print("✅ Job 'publish_scheduled_articles_job' berhasil ditambahkan, akan jalan tiap 1 menit.")
         except Exception as e:
             print(f"❌ GAGAL menambahkan job 'publish_scheduled_articles_job': {e}")
+        
+        # --- STARTUP CHECK: Process and re-schedule existing scheduled articles ---
+        print("\n[STARTUP] Checking for scheduled articles...")
+        startup_db = SessionLocal()
+        try:
+            now = datetime.now(jakarta_tz).replace(tzinfo=None)
+            
+            # 1. Publish any overdue scheduled articles immediately
+            overdue_result = labArticleController.publish_scheduled_articles(startup_db)
+            if overdue_result.get('updated_count', 0) > 0:
+                print(f"[STARTUP] ✅ Published {overdue_result['updated_count']} overdue articles: {overdue_result['articles']}")
+            else:
+                print("[STARTUP] No overdue articles to publish.")
+            
+            # 2. Re-schedule future scheduled articles
+            from services.models import labArticleModel as articlesModel
+            future_articles = startup_db.query(articlesModel.LabArticle).filter(
+                articlesModel.LabArticle.nstatus == 2,  # Scheduled
+                articlesModel.LabArticle.dpublished_at != None,
+                articlesModel.LabArticle.dpublished_at > now
+            ).all()
+            
+            scheduled_count = 0
+            for article in future_articles:
+                success = labArticleController.schedule_article_publish(
+                    scheduler=app.state.scheduler,
+                    db_factory=SessionLocal,
+                    article_vcode=article.vcode,
+                    publish_datetime=article.dpublished_at
+                )
+                if success:
+                    scheduled_count += 1
+            
+            if scheduled_count > 0:
+                print(f"[STARTUP] ✅ Re-scheduled {scheduled_count} future articles.")
+            else:
+                print("[STARTUP] No future scheduled articles to re-schedule.")
+                
+        except Exception as e:
+            print(f"[STARTUP] ❌ Error during startup article check: {e}")
+        finally:
+            startup_db.close()
+        print("[STARTUP] Article scheduling check complete.\n")
+        
+        # --- STARTUP CHECK: Process and re-schedule approved bookings ---
+        print("[STARTUP] Checking for approved bookings to expire...")
+        booking_startup_db = SessionLocal()
+        try:
+            now = datetime.now(jakarta_tz).replace(tzinfo=None)
+            
+            # 1. Expire any overdue approved bookings immediately
+            overdue_result = bookingController.trigger_update_overdue_bookings(booking_startup_db)
+            if overdue_result.get('updated_count', 0) > 0:
+                print(f"[STARTUP] ✅ Expired {overdue_result['updated_count']} overdue bookings.")
+            else:
+                print("[STARTUP] No overdue bookings to expire.")
+            
+            # 2. Re-schedule future approved bookings
+            from services.models.bookingModel import Booking as BookingModel
+            future_bookings = booking_startup_db.query(BookingModel).filter(
+                BookingModel.nstatus == 1,  # Approved
+                BookingModel.dend != None,
+                BookingModel.dend > now
+            ).all()
+            
+            scheduled_booking_count = 0
+            for booking in future_bookings:
+                success = bookingController.schedule_booking_expiration(
+                    scheduler=app.state.scheduler,
+                    db_factory=SessionLocal,
+                    booking_id=booking.nid,
+                    end_datetime=booking.dend
+                )
+                if success:
+                    scheduled_booking_count += 1
+            
+            if scheduled_booking_count > 0:
+                print(f"[STARTUP] ✅ Re-scheduled {scheduled_booking_count} future booking expirations.")
+            else:
+                print("[STARTUP] No future approved bookings to re-schedule.")
+                
+        except Exception as e:
+            print(f"[STARTUP] ❌ Error during startup booking check: {e}")
+        finally:
+            booking_startup_db.close()
+        print("[STARTUP] Booking expiration check complete.\n")
     else:
         print("⚠️ PERINGATAN: Scheduler tidak berjalan, job 'check_overdue_bookings' tidak bisa ditambahkan.")
 

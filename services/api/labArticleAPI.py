@@ -111,6 +111,18 @@ def create_new_article(
             current_user=current_user
         )
         
+        # If article is scheduled (nstatus=2), add precise scheduling job
+        if new_article.nstatus == 2 and new_article.dpublished_at:
+            # Get scheduler from app state
+            scheduler = request.app.state.scheduler if hasattr(request.app.state, 'scheduler') else None
+            if scheduler and scheduler.running:
+                labArticleController.schedule_article_publish(
+                    scheduler=scheduler,
+                    db_factory=SessionLocal,
+                    article_vcode=new_article.vcode,
+                    publish_datetime=new_article.dpublished_at
+                )
+        
         # Activity Log
         background_tasks.add_task(
             auditLogController.create_activity_log_task,
@@ -268,3 +280,16 @@ def get_public_article_detail(
         "tags": result["tags"],
         "nis_featured": article.nis_featured
     }
+
+
+@router.get("/public/{vcode}/related")
+def get_public_related_articles(
+    vcode: str,
+    limit: int = 3,
+    db: Session = Depends(get_db)
+):
+    """
+    Get related articles for a given article.
+    Priority: Tag matching, then same lab.
+    """
+    return labArticleController.get_related_articles(db=db, vcode=vcode, limit=limit)
