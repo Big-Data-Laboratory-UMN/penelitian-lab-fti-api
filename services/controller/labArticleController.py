@@ -1,7 +1,9 @@
 # services/controller/labArticleController.py
 
+import traceback
+from fastapi import Request, UploadFile
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, case
+from sqlalchemy import or_, case, func
 from typing import Optional, List, Set
 import re
 from datetime import datetime
@@ -11,6 +13,7 @@ from ..models import labArticleModel as models
 from ..models import userAccessModel, rolesModel, departmentLabModel, labModel, usersModel
 from ..schemas import labArticleSchema as schema
 from ..schemas import usersSchema
+from . import fileController
 
 WIB = pytz.timezone("Asia/Jakarta")
 
@@ -154,8 +157,11 @@ def get_articles(
     limit: int = 10,
     search: Optional[str] = None,
     nid_lab: Optional[int] = None,
+    nid_user: Optional[int] = None,
     nstatus: Optional[int] = None,
     nis_featured: Optional[int] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
 ):
     """Get articles with scoping"""
     # 1. Get scope
@@ -181,6 +187,8 @@ def get_articles(
     # 4. Apply filters
     if nid_lab:
         query = query.filter(models.LabArticle.nid_lab == nid_lab)
+    if nid_user:
+        query = query.filter(models.LabArticle.nid_user == nid_user)
     if nstatus is not None:
         query = query.filter(models.LabArticle.nstatus == nstatus)
     if nis_featured is not None:
@@ -191,6 +199,17 @@ def get_articles(
             models.LabArticle.vexcerpt.ilike(f"%{search}%"),
         )
         query = query.filter(search_filter)
+
+    # Date Filtering (Publish Date)
+    if start_date and end_date:
+        query = query.filter(
+            func.date(models.LabArticle.dpublished_at) >= start_date,
+            func.date(models.LabArticle.dpublished_at) <= end_date
+        )
+    elif start_date:
+        query = query.filter(func.date(models.LabArticle.dpublished_at) >= start_date)
+    elif end_date:
+         query = query.filter(func.date(models.LabArticle.dpublished_at) <= end_date)
     
     # 5. Pagination
     total = query.count()
@@ -290,7 +309,8 @@ def get_public_articles(
             "vcode": article.vcode,
             "vtitle": article.vtitle,
             "vexcerpt": article.vexcerpt,
-            "vthumbnail": article.vthumbnail,
+            "nid_file": article.nid_file,
+            "related_file": article.related_file,
             "dpublished_at": article.dpublished_at,
             "lab_name": lab_name,
             "lab_code": lab_code,
@@ -356,7 +376,8 @@ def get_related_articles(db: Session, vcode: str, limit: int = 3):
                     related_articles.append({
                         "vcode": article.vcode,
                         "vtitle": article.vtitle,
-                        "vthumbnail": article.vthumbnail,
+                        "nid_file": article.nid_file,
+                        "related_file": article.related_file,
                         "lab_name": lab_name,
                         "author_name": author_name,
                     })
@@ -386,7 +407,8 @@ def get_related_articles(db: Session, vcode: str, limit: int = 3):
             related_articles.append({
                 "vcode": article.vcode,
                 "vtitle": article.vtitle,
-                "vthumbnail": article.vthumbnail,
+                "nid_file": article.nid_file,
+                "related_file": article.related_file,
                 "lab_name": lab_name,
                 "author_name": author_name,
             })
@@ -430,7 +452,7 @@ def create_article(
         vtitle=article.vtitle,
         vexcerpt=article.vexcerpt,
         vcontent=article.vcontent,
-        vthumbnail=article.vthumbnail,
+        nid_file=article.nid_file,
         nis_featured=article.nis_featured or 0,
         dpublished_at=publish_date,
         vcreated_by=current_user.vcode,
@@ -528,6 +550,106 @@ def update_article(
     db.refresh(db_article)
     
     return db_article
+
+
+async def create_article_with_file(
+    db: Session,
+    article: schema.LabArticleCreate,
+    file: UploadFile | None,
+    current_user: usersSchema.User,
+    request: Request
+):
+    """Create new article with optional file upload."""
+    
+    new_file_id = None
+    try:
+        # Handle file upload if provided
+        if file and file.filename:
+            saved_file_data = await fileController.save_file(
+                db=db, file=file, category="articles",
+                current_user=current_user, request=request, is_public=True
+            )
+            new_file_id = saved_file_data.nid
+        
+        # Set nid_file on article
+        article.nid_file = new_file_id
+        
+        # Use existing create_article function
+        db_article = create_article(db=db, article=article, current_user=current_user)
+        
+        return db_article
+    
+    except Exception as e:
+        db.rollback()
+        print("---!!! ERROR CREATING ARTICLE !!!---")
+        traceback.print_exc()
+        print("------------------------------------")
+        
+        # Rollback uploaded file if exists
+        if new_file_id:
+            try:
+                fileController.permanently_delete_file_record(db, new_file_id)
+            except Exception as del_e:
+                print(f"Failed to rollback file {new_file_id}: {del_e}")
+        
+        raise ValueError(f"Operation failed: {e}")
+
+
+async def update_article_with_file(
+    db: Session,
+    vcode: str,
+    article: schema.LabArticleUpdate,
+    file: UploadFile | None,
+    current_user: usersSchema.User,
+    request: Request
+):
+    """Update article with optional file upload/replace."""
+    
+    db_article = get_article_by_code(db, vcode)
+    if not db_article:
+        raise ValueError("Article not found")
+    
+    old_file_id = db_article.nid_file
+    new_file_id = old_file_id
+    
+    try:
+        # Handle file upload if provided
+        if file and file.filename:
+            saved_file_data = await fileController.save_file(
+                db=db, file=file, category="articles",
+                current_user=current_user, request=request, is_public=True
+            )
+            new_file_id = saved_file_data.nid
+        
+        # Set nid_file on article update data
+        article.nid_file = new_file_id
+        
+        # Use existing update_article function
+        db_article = update_article(db=db, vcode=vcode, article=article, current_user=current_user)
+        
+        # If new file was uploaded, delete old file
+        if file and file.filename and old_file_id:
+            try:
+                fileController.permanently_delete_file_record(db, old_file_id)
+            except Exception as del_e:
+                print(f"Failed to delete old file {old_file_id}: {del_e}")
+        
+        return db_article
+    
+    except Exception as e:
+        db.rollback()
+        print("---!!! ERROR UPDATING ARTICLE !!!---")
+        traceback.print_exc()
+        print("------------------------------------")
+        
+        # Rollback new file if it was uploaded
+        if new_file_id != old_file_id and file and file.filename:
+            try:
+                fileController.permanently_delete_file_record(db, new_file_id)
+            except Exception as del_e:
+                print(f"Failed to rollback new file {new_file_id}: {del_e}")
+        
+        raise ValueError(f"Operation failed: {e}")
 
 
 def delete_article(db: Session, vcode: str, current_user: usersSchema.User):

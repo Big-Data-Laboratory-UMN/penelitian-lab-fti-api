@@ -623,6 +623,7 @@ def delete_lab(db: Session, lab_vcode: str, current_user: usersSchema.User):
 def get_all_active_labs_for_dropdown(db: Session):
     labs = (
         db.query(models.Lab)
+        .filter(models.Lab.nstatus == 1)
         .order_by(models.Lab.vname)
         .all()
     )
@@ -631,7 +632,6 @@ def get_all_active_labs_for_dropdown(db: Session):
 def get_all_labs_for_dropdown(db: Session):
     labs = (
         db.query(models.Lab)
-        .filter(models.Lab.nstatus == 1)
         .order_by(models.Lab.vname)
         .all()
     )

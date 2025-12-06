@@ -21,12 +21,23 @@ class ArticleTagSchema(ArticleTagBase):
         from_attributes = True
 
 
+class RelatedFile(BaseModel):
+    """Schema for file data in article responses"""
+    nid: int
+    vname: str
+    vpath: Optional[str] = None
+    nsize: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
 class LabArticleBase(BaseModel):
     nid_lab: int
     vtitle: str = Field(..., max_length=50)
     vexcerpt: Optional[str] = Field(None, max_length=500)
     vcontent: str = Field(..., max_length=100000)
-    vthumbnail: Optional[str] = Field(None, max_length=500)
+    nid_file: Optional[int] = None
     nis_featured: Optional[int] = 0
     dpublished_at: Optional[datetime] = None
     tags: Optional[List[str]] = Field(default_factory=list, max_length=5)
@@ -55,7 +66,7 @@ class LabArticleUpdate(BaseModel):
     vtitle: Optional[str] = Field(None, max_length=50)
     vexcerpt: Optional[str] = Field(None, max_length=500)
     vcontent: Optional[str] = Field(None, max_length=100000)
-    vthumbnail: Optional[str] = Field(None, max_length=500)
+    nid_file: Optional[int] = None
     nis_featured: Optional[int] = None
     nstatus: Optional[int] = None
     dpublished_at: Optional[datetime] = None
@@ -89,7 +100,8 @@ class LabArticleSchema(BaseModel):
     vtitle: str
     vexcerpt: Optional[str] = None
     vcontent: str
-    vthumbnail: Optional[str] = None
+    nid_file: Optional[int] = None
+    related_file: Optional[RelatedFile] = None
     
     nis_featured: int
     nstatus: int
@@ -114,7 +126,8 @@ class LabArticlePublicSchema(BaseModel):
     vcode: str
     vtitle: str
     vexcerpt: Optional[str] = None
-    vthumbnail: Optional[str] = None
+    nid_file: Optional[int] = None
+    related_file: Optional[RelatedFile] = None
     dpublished_at: Optional[datetime] = None
     lab_name: Optional[str] = None
     lab_code: Optional[str] = None

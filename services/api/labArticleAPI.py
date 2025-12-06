@@ -1,8 +1,9 @@
 # services/api/labArticleAPI.py
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import json
 
 from ..schemas import labArticleSchema as schema, usersSchema, labSchema
 from ..controller import labArticleController, usersController, userAccessController, auditLogController
@@ -39,8 +40,11 @@ def read_all_articles(
     limit: int = 10,
     search: Optional[str] = None,
     nid_lab: Optional[int] = None,
+    nid_user: Optional[int] = None,
     nstatus: Optional[int] = None,
     nis_featured: Optional[int] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
@@ -53,8 +57,11 @@ def read_all_articles(
         limit=limit,
         search=search,
         nid_lab=nid_lab,
+        nid_user=nid_user,
         nstatus=nstatus,
-        nis_featured=nis_featured
+        nis_featured=nis_featured,
+        start_date=start_date,
+        end_date=end_date
     )
     return articles_data
 
@@ -93,27 +100,63 @@ def get_article_by_code(
 
 
 @router.post("/", response_model=schema.LabArticleSchema, status_code=status.HTTP_201_CREATED)
-def create_new_article(
-    article: schema.LabArticleCreate,
+async def create_new_article(
     request: Request,
     background_tasks: BackgroundTasks,
+    nid_lab: int = Form(...),
+    vtitle: str = Form(...),
+    vexcerpt: Optional[str] = Form(None),
+    vcontent: str = Form(...),
+    nis_featured: Optional[int] = Form(0),
+    dpublished_at: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),  # JSON string of array
+    file: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    """Create new article"""
+    """Create new article with optional thumbnail image"""
     check_forbidden_roles(db, current_user)
     
     try:
-        article.vcreated_by = current_user.vcode
-        new_article = labArticleController.create_article(
+        # Parse tags from JSON string
+        parsed_tags = []
+        if tags:
+            try:
+                parsed_tags = json.loads(tags)
+            except:
+                parsed_tags = []
+        
+        # Parse dpublished_at if provided
+        from datetime import datetime
+        parsed_date = None
+        if dpublished_at:
+            try:
+                parsed_date = datetime.fromisoformat(dpublished_at.replace('Z', '+00:00'))
+            except:
+                parsed_date = None
+        
+        # Build article schema
+        article = schema.LabArticleCreate(
+            nid_lab=nid_lab,
+            vtitle=vtitle,
+            vexcerpt=vexcerpt,
+            vcontent=vcontent,
+            nis_featured=nis_featured,
+            dpublished_at=parsed_date,
+            tags=parsed_tags,
+            vcreated_by=current_user.vcode
+        )
+        
+        new_article = await labArticleController.create_article_with_file(
             db=db,
             article=article,
-            current_user=current_user
+            file=file,
+            current_user=current_user,
+            request=request
         )
         
         # If article is scheduled (nstatus=2), add precise scheduling job
         if new_article.nstatus == 2 and new_article.dpublished_at:
-            # Get scheduler from app state
             scheduler = request.app.state.scheduler if hasattr(request.app.state, 'scheduler') else None
             if scheduler and scheduler.running:
                 labArticleController.schedule_article_publish(
@@ -131,7 +174,7 @@ def create_new_article(
             target_model="LabArticle",
             target_identifier=new_article.vcode,
             jbefore=None,
-            jafter=article.model_dump(),
+            jafter=article.model_dump(mode='json'),
             ip=request.client.host,
             user_agent=request.headers.get("user-agent")
         )
@@ -139,18 +182,29 @@ def create_new_article(
         return new_article
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        print(f"Error creating article: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
 @router.put("/{vcode}", response_model=schema.LabArticleSchema)
-def update_existing_article(
+async def update_existing_article(
     vcode: str,
-    article: schema.LabArticleUpdate,
     request: Request,
     background_tasks: BackgroundTasks,
+    nid_lab: Optional[int] = Form(None),
+    vtitle: Optional[str] = Form(None),
+    vexcerpt: Optional[str] = Form(None),
+    vcontent: Optional[str] = Form(None),
+    nis_featured: Optional[int] = Form(None),
+    nstatus: Optional[int] = Form(None),
+    dpublished_at: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),  # JSON string of array
+    file: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)
 ):
-    """Update existing article"""
+    """Update existing article with optional thumbnail image"""
     check_forbidden_roles(db, current_user)
     
     # Get before state for logging
@@ -161,12 +215,43 @@ def update_existing_article(
     jbefore = schema.LabArticleSchema.model_validate(db_article_before).model_dump(mode='json')
     
     try:
-        article.vmodified_by = current_user.vcode
-        db_article = labArticleController.update_article(
+        # Parse tags from JSON string
+        parsed_tags = None
+        if tags is not None:
+            try:
+                parsed_tags = json.loads(tags)
+            except:
+                parsed_tags = None
+        
+        # Parse dpublished_at if provided
+        from datetime import datetime
+        parsed_date = None
+        if dpublished_at:
+            try:
+                parsed_date = datetime.fromisoformat(dpublished_at.replace('Z', '+00:00'))
+            except:
+                parsed_date = None
+        
+        # Build article update schema
+        article = schema.LabArticleUpdate(
+            nid_lab=nid_lab,
+            vtitle=vtitle,
+            vexcerpt=vexcerpt,
+            vcontent=vcontent,
+            nis_featured=nis_featured,
+            nstatus=nstatus,
+            dpublished_at=parsed_date,
+            tags=parsed_tags,
+            vmodified_by=current_user.vcode
+        )
+        
+        db_article = await labArticleController.update_article_with_file(
             db=db,
             vcode=vcode,
             article=article,
-            current_user=current_user
+            file=file,
+            current_user=current_user,
+            request=request
         )
         
         # Activity Log
@@ -177,7 +262,7 @@ def update_existing_article(
             target_model="LabArticle",
             target_identifier=db_article.vcode,
             jbefore=jbefore,
-            jafter=article.model_dump(),
+            jafter=article.model_dump(mode='json'),
             ip=request.client.host,
             user_agent=request.headers.get("user-agent")
         )
@@ -185,6 +270,9 @@ def update_existing_article(
         return db_article
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        print(f"Error updating article: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
 @router.delete("/{vcode}", status_code=status.HTTP_204_NO_CONTENT)
@@ -272,7 +360,8 @@ def get_public_article_detail(
         "vtitle": article.vtitle,
         "vexcerpt": article.vexcerpt,
         "vcontent": article.vcontent,
-        "vthumbnail": article.vthumbnail,
+        "nid_file": article.nid_file,
+        "related_file": article.related_file,
         "dpublished_at": article.dpublished_at,
         "lab_name": result["lab_name"],
         "lab_code": result["lab_code"],

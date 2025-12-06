@@ -21,7 +21,8 @@ class LabArticle(Base):
     vtitle = Column(String(255), nullable=False)
     vexcerpt = Column(Text, nullable=True)  # Max 500 chars validated in schema
     vcontent = Column(Text, nullable=False)  # LONGTEXT, max 100k chars validated in schema
-    vthumbnail = Column(String(500), nullable=True)
+    nid_file = Column(Integer, ForeignKey("tblm_files.nid"), nullable=True)
+    related_file = relationship("Files", backref="articles", lazy="joined")
     
     nis_featured = Column(Integer, default=0, comment="0:No, 1:Yes")
     nstatus = Column(Integer, default=1, comment="0:Inactive, 1:Published, 2:Scheduled")
