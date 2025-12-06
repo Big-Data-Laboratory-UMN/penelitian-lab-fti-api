@@ -1,7 +1,7 @@
 # services/controller/labArticleController.py
 
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, case
 from typing import Optional, List, Set
 import uuid
 from datetime import datetime
@@ -207,7 +207,11 @@ def get_public_articles(
         query = query.filter(search_filter)
     
     total = query.count()
-    query = query.order_by(models.LabArticle.dpublished_at.desc().nullslast())
+    # MySQL-compatible: Use CASE to sort NULLs last (nullslast() is PostgreSQL-only)
+    query = query.order_by(
+        case((models.LabArticle.dpublished_at.is_(None), 1), else_=0),
+        models.LabArticle.dpublished_at.desc()
+    )
     results = query.offset(skip).limit(limit).all()
     
     data = []
