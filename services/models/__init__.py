@@ -12,10 +12,7 @@ from .bookingModel import Booking
 from .bookingFilesModel import BookingFile
 from .securityLogModel import SecurityLog
 from .activityLogModel import ActivityLog
-from .labContentModel import LabContent
-from .labContentFilesModel import LabContentFiles
-from .landingPageModel import LandingPages
-from .landingPageImageModel import LandingPageImage
 from .labGalleryModel import LabGallery
 from .buildingModel import Building
 from .KnowledgeBaseModel import knowledge_base
+from .labArticleModel import LabArticle, ArticleTag

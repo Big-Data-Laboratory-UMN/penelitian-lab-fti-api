@@ -1,11 +1,11 @@
 import os
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
-from services.api import rolesAPI, usersAPI, labAPI, labContentAPI, labContentFilesAPI, landingPageAPI, landingPageImagesAPI, departmentAPI, userAccessAPI, departmentLabAPI, filesAPI, facilityAPI, labFacilityAPI, bookingAPI, auditLogAPI, userPermissionsAPI, chatbotAPI, buildingAPI, knowledgeBaseAPI
+from services.api import rolesAPI, usersAPI, labAPI, departmentAPI, userAccessAPI, departmentLabAPI, filesAPI, facilityAPI, labFacilityAPI, bookingAPI, auditLogAPI, chatbotAPI, buildingAPI, knowledgeBaseAPI, labArticleAPI
 from services import models 
 from contextlib import asynccontextmanager
 from services.database import engine, Base, SessionLocal
-from services.controller import usersController, bookingController
+from services.controller import usersController, bookingController, labArticleController
 import asyncio
 import pytz
 from datetime import datetime
@@ -37,6 +37,23 @@ def check_overdue_bookings_job():
         db.close() # Pastiin session ditutup
     print("[CRON JOB FINISH] Job finished.")
 
+def publish_scheduled_articles_job():
+    """
+    Cron job to publish scheduled articles.
+    """
+    jakarta_tz = pytz.timezone("Asia/Jakarta")
+    print(f"\n[CRON JOB RUN] Running publish_scheduled_articles_job at {datetime.now(jakarta_tz)}")
+    db = SessionLocal()
+    try:
+        result = labArticleController.publish_scheduled_articles(db)
+        print(f"[CRON JOB SUCCESS] Published {result.get('updated_count', 0)} articles: {result.get('articles', [])}")
+    except Exception as e:
+        print(f"[CRON JOB FAILED] Error: {e}")
+        db.rollback()
+    finally:
+        db.close()
+    print("[CRON JOB FINISH] Job finished.")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     usersController.start_scheduler(app) 
@@ -60,6 +77,21 @@ async def lifespan(app: FastAPI):
             print("✅ Job 'check_overdue_bookings_job' berhasil ditambahkan, akan jalan tiap jam.")
         except Exception as e:
             print(f"❌ GAGAL menambahkan job 'check_overdue_bookings_job': {e}")
+        
+        # Add job for scheduled article publishing
+        print("Menambahkan job 'publish_scheduled_articles_job'...")
+        try:
+            app.state.scheduler.add_job(
+                publish_scheduled_articles_job,    
+                'interval',                    
+                minutes=5,  # Check every 5 minutes                   
+                id="job_publish_scheduled_articles",     
+                replace_existing=True,        
+                misfire_grace_time=60          
+            )
+            print("✅ Job 'publish_scheduled_articles_job' berhasil ditambahkan, akan jalan tiap 5 menit.")
+        except Exception as e:
+            print(f"❌ GAGAL menambahkan job 'publish_scheduled_articles_job': {e}")
     else:
         print("⚠️ PERINGATAN: Scheduler tidak berjalan, job 'check_overdue_bookings' tidak bisa ditambahkan.")
 
@@ -93,12 +125,7 @@ def root():
 
 app.include_router(rolesAPI.router)
 app.include_router(usersAPI.router)
-app.include_router(userPermissionsAPI.router)
 app.include_router(labAPI.router)
-app.include_router(labContentAPI.router)
-app.include_router(labContentFilesAPI.router)
-app.include_router(landingPageAPI.router)
-app.include_router(landingPageImagesAPI.router)
 app.include_router(departmentAPI.router)
 app.include_router(departmentLabAPI.router)
 app.include_router(userAccessAPI.router)
@@ -110,3 +137,4 @@ app.include_router(auditLogAPI.router)
 app.include_router(chatbotAPI.router)
 app.include_router(buildingAPI.router)
 app.include_router(knowledgeBaseAPI.router)
+app.include_router(labArticleAPI.router)
