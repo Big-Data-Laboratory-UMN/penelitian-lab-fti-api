@@ -76,3 +76,19 @@ class BookingPublicSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class BookingPublicAllSchema(BaseModel):
+    """Extended public booking schema with lab info for all-labs calendar display."""
+    vcode: str
+    dstart: datetime
+    dend: datetime
+    vactivity: str
+    nstatus: int
+    nbooking_type: int
+    facility_name: Optional[str] = None
+    lab_vcode: Optional[str] = None
+    lab_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True

@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session, selectinload, joinedload
-from sqlalchemy import func, or_, desc
+from sqlalchemy import func, or_, desc, and_
 from fastapi import HTTPException, Request, UploadFile, BackgroundTasks
 import uuid
 import secrets
@@ -2230,3 +2230,74 @@ def get_public_bookings_by_lab(
         }
         for r in results
     ]
+
+
+def get_public_bookings_all(
+    db: Session,
+    dstart: datetime,
+    dend: datetime,
+    lab_vcode: Optional[str] = None,
+    nid_facility: Optional[int] = None
+):
+    """
+    Get all approved bookings and maintenance from all labs (public access).
+    Only returns: Approved (1) regular bookings and all Maintenance (nbooking_type=1).
+    """
+    # Status: 1=Approved for regular bookings
+    approved_status = 1
+    
+    query = db.query(
+        Booking.vcode,
+        Booking.dstart,
+        Booking.dend,
+        Booking.vactivity,
+        Booking.nstatus,
+        Booking.nbooking_type,
+        facilityModel.Facility.vname.label('facility_name'),
+        labModel.Lab.vcode.label('lab_vcode'),
+        labModel.Lab.vname.label('lab_name')
+    ).join(
+        LabFacility, Booking.nid_lab_facility == LabFacility.nid
+    ).join(
+        facilityModel.Facility, LabFacility.nid_facility == facilityModel.Facility.nid
+    ).join(
+        labModel.Lab, LabFacility.nid_lab == labModel.Lab.nid
+    ).filter(
+        labModel.Lab.nstatus == 1,  # Only active labs
+        Booking.dstart < dend,
+        Booking.dend > dstart,
+        # Include: Approved regular bookings OR any Maintenance bookings
+        or_(
+            and_(Booking.nstatus == approved_status, Booking.nbooking_type == 0),  # Regular approved
+            Booking.nbooking_type == 1  # Maintenance (any status)
+        )
+    )
+
+    # Optional filter by lab
+    if lab_vcode:
+        query = query.filter(labModel.Lab.vcode == lab_vcode)
+    
+    # Optional filter by facility
+    if nid_facility:
+        query = query.filter(LabFacility.nid == nid_facility)
+
+    results = query.order_by(
+        Booking.dstart.asc()
+    ).all()
+    
+    # Convert to list of dicts matching BookingPublicAllSchema
+    return [
+        {
+            "vcode": r.vcode,
+            "dstart": r.dstart,
+            "dend": r.dend,
+            "vactivity": r.vactivity,
+            "nstatus": r.nstatus,
+            "nbooking_type": r.nbooking_type,
+            "facility_name": r.facility_name,
+            "lab_vcode": r.lab_vcode,
+            "lab_name": r.lab_name
+        }
+        for r in results
+    ]
+

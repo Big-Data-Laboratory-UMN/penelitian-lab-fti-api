@@ -552,7 +552,71 @@ def read_my_bookings_api(
         dstart=to_wib(dateStart),
         dend=to_wib(dateEnd)
     )
+
+# -----------------------------------------------
+# --- PUBLIC ENDPOINTS (NO AUTH) ---
+# -----------------------------------------------
+# IMPORTANT: These MUST be defined BEFORE /{booking_id} route
+# otherwise FastAPI will try to match "public" as booking_id
+
+@router.get("/public/all", response_model=List[bookingSchema.BookingPublicAllSchema])
+def get_public_bookings_all_api(
+    month: int = Query(..., description="Filter by month (1-12).", ge=1, le=12),
+    year: int = Query(..., description="Filter by year (e.g., 2025).", ge=2020),
+    lab_vcode: Optional[str] = Query(None, description="Optional filter by lab vcode"),
+    nid_facility: Optional[int] = Query(None, description="Filter by facility ID"),
+    db: Session = Depends(get_db),
+):
+    """
+    Get all approved bookings and maintenance from all labs (public access, no auth required).
+    Returns simplified booking data with lab info for calendar display.
+    Only shows: Approved (1) bookings and Maintenance (nbooking_type=1).
+    """
+    try:
+        _, num_days = calendar.monthrange(year, month)
+        dstart = JAKARTA_TZ.localize(datetime(year, month, 1, 0, 0, 0))
+        dend = JAKARTA_TZ.localize(datetime(year, month, num_days, 23, 59, 59))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid month or year value.")
     
+    return bookingController.get_public_bookings_all(
+        db=db,
+        dstart=dstart,
+        dend=dend,
+        lab_vcode=lab_vcode,
+        nid_facility=nid_facility
+    )
+
+
+@router.get("/public/by-lab/{lab_vcode}", response_model=List[bookingSchema.BookingPublicSchema])
+def get_public_bookings_by_lab_api(
+    lab_vcode: str,
+    month: int = Query(..., description="Filter by month (1-12).", ge=1, le=12),
+    year: int = Query(..., description="Filter by year (e.g., 2025).", ge=2020),
+    nid_facility: Optional[int] = Query(None, description="Filter by facility ID"),
+    db: Session = Depends(get_db),
+):
+    """
+    Get approved/done bookings for a specific lab (public access, no auth required).
+    Returns simplified booking data for calendar display.
+    Only shows: Approved (1), WaitingForDoc (4), Done (5) bookings.
+    """
+    try:
+        _, num_days = calendar.monthrange(year, month)
+        dstart = JAKARTA_TZ.localize(datetime(year, month, 1, 0, 0, 0))
+        dend = JAKARTA_TZ.localize(datetime(year, month, num_days, 23, 59, 59))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid month or year value.")
+    
+    return bookingController.get_public_bookings_by_lab(
+        db=db,
+        lab_vcode=lab_vcode,
+        dstart=dstart,
+        dend=dend,
+        nid_facility=nid_facility
+    )
+
+
 # 4. GET BOOKING BY ID (Owner or Admin/SA/PIC)
 @router.get("/{booking_id}", response_model=bookingSchema.BookingSchema)
 def read_booking_by_id_api(
@@ -842,36 +906,3 @@ def set_booking_maintenance_api(
     # ---------------------------------------
 
     return result
-
-
-# -----------------------------------------------
-# --- PUBLIC ENDPOINTS (NO AUTH) ---
-# -----------------------------------------------
-
-@router.get("/public/by-lab/{lab_vcode}", response_model=List[bookingSchema.BookingPublicSchema])
-def get_public_bookings_by_lab_api(
-    lab_vcode: str,
-    month: int = Query(..., description="Filter by month (1-12).", ge=1, le=12),
-    year: int = Query(..., description="Filter by year (e.g., 2025).", ge=2020),
-    nid_facility: Optional[int] = Query(None, description="Filter by facility ID"),
-    db: Session = Depends(get_db),
-):
-    """
-    Get approved/done bookings for a specific lab (public access, no auth required).
-    Returns simplified booking data for calendar display.
-    Only shows: Approved (1), WaitingForDoc (4), Done (5) bookings.
-    """
-    try:
-        _, num_days = calendar.monthrange(year, month)
-        dstart = JAKARTA_TZ.localize(datetime(year, month, 1, 0, 0, 0))
-        dend = JAKARTA_TZ.localize(datetime(year, month, num_days, 23, 59, 59))
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid month or year value.")
-    
-    return bookingController.get_public_bookings_by_lab(
-        db=db,
-        lab_vcode=lab_vcode,
-        dstart=dstart,
-        dend=dend,
-        nid_facility=nid_facility
-    )
