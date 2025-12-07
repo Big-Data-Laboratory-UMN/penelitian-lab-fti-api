@@ -1,7 +1,7 @@
 import os
 from fastapi import FastAPI # type: ignore
 from fastapi.middleware.cors import CORSMiddleware # type: ignore
-from services.api import rolesAPI, usersAPI, labAPI, departmentAPI, userAccessAPI, departmentLabAPI, filesAPI, facilityAPI, labFacilityAPI, bookingAPI, auditLogAPI, chatbotAPI, buildingAPI, knowledgeBaseAPI, labArticleAPI
+from services.api import rolesAPI, usersAPI, labAPI, departmentAPI, userAccessAPI, departmentLabAPI, filesAPI, facilityAPI, labFacilityAPI, bookingAPI, auditLogAPI, chatbotAPI, buildingAPI, knowledgeBaseAPI, labArticleAPI, landingPageAPI
 from services import models 
 from contextlib import asynccontextmanager
 from services.database import engine, Base, SessionLocal
@@ -226,3 +226,4 @@ app.include_router(chatbotAPI.router)
 app.include_router(buildingAPI.router)
 app.include_router(knowledgeBaseAPI.router)
 app.include_router(labArticleAPI.router)
+app.include_router(landingPageAPI.router)

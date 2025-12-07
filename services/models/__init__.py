@@ -16,3 +16,4 @@ from .labGalleryModel import LabGallery
 from .buildingModel import Building
 from .KnowledgeBaseModel import knowledge_base
 from .labArticleModel import LabArticle, ArticleTag
+from .landingPageModel import LandingPageContent, LandingPageSlide

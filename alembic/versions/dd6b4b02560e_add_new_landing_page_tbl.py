@@ -1,8 +1,8 @@
-"""Add LabArticle and ArticleTag tables
+"""add new landing page tbl
 
-Revision ID: 7302794ca5d6
+Revision ID: dd6b4b02560e
 Revises: 
-Create Date: 2025-12-06 13:53:06.614687
+Create Date: 2025-12-07 15:42:46.614752
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '7302794ca5d6'
+revision: str = 'dd6b4b02560e'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
