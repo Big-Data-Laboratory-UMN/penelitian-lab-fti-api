@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, BackgroundTasks, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from typing import Optional
+import os
 
 from ..schemas import landingPageSchema as schema, usersSchema
 from ..controller import landingPageController, usersController, userAccessController, fileController
@@ -135,6 +136,11 @@ def get_public_landing_page(
     db: Session = Depends(get_db)
 ):
     """Get landing page data for public display (no auth required)"""
-    base_url = str(request.base_url).rstrip('/')
+    # Prioritize BASE_URL_BE from env, fallback to request.base_url
+    base_url = os.getenv("BASE_URL_BE")
+    if not base_url:
+        base_url = str(request.base_url)
+    
+    base_url = base_url.rstrip('/')
     data = landingPageController.get_public_landing_page(db, base_url)
     return {"data": data, "message": "Success"}
