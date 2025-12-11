@@ -207,8 +207,8 @@ def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_use
     return departments_data
 
 @router.get("/all-active-for-user-dropdown/", response_model=schema.DepartmentDropdownResponse)
-def read_all_departments_for_dropdown(db: Session = Depends(get_db), current_user: usersSchema.User = Depends(usersController.get_current_active_user_from_cookie)):
-    check_adm_sa_only(db, current_user)
+def read_all_departments_for_dropdown(db: Session = Depends(get_db)):
+    # check_adm_sa_only(db, current_user)
     departments_data = departmentController.get_all_active_departments_for_dropdown(db=db, for_user=True)
     return departments_data
 
