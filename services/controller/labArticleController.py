@@ -298,6 +298,7 @@ def get_public_articles(
     total = query.count()
     # MySQL-compatible: Use CASE to sort NULLs last (nullslast() is PostgreSQL-only)
     query = query.order_by(
+        models.LabArticle.nis_featured.desc(),
         case((models.LabArticle.dpublished_at.is_(None), 1), else_=0),
         models.LabArticle.dpublished_at.desc()
     )
