@@ -34,7 +34,7 @@ class RelatedFile(BaseModel):
 
 class LabArticleBase(BaseModel):
     nid_lab: int
-    vtitle: str = Field(..., max_length=50)
+    vtitle: str = Field(..., max_length=150)
     vexcerpt: Optional[str] = Field(None, max_length=500)
     vcontent: str = Field(..., max_length=100000)
     nid_file: Optional[int] = None
@@ -63,7 +63,7 @@ class LabArticleCreate(LabArticleBase):
 
 class LabArticleUpdate(BaseModel):
     nid_lab: Optional[int] = None
-    vtitle: Optional[str] = Field(None, max_length=50)
+    vtitle: Optional[str] = Field(None, max_length=150)
     vexcerpt: Optional[str] = Field(None, max_length=500)
     vcontent: Optional[str] = Field(None, max_length=100000)
     nid_file: Optional[int] = None
