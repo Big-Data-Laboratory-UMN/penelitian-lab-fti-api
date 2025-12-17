@@ -16,8 +16,26 @@ def now_wib():
     return datetime.now(pytz.timezone("Asia/Jakarta"))
 
 
+
+def get_client_ip(request: Request | None) -> str | None:
+    if not request:
+        return None
+    
+    # Check X-Forwarded-For (standard for proxies)
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+        
+    # Check X-Real-IP (common alternative)
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip
+        
+    # Fallback to direct connection
+    return request.client.host if request.client else None
+
 def create_security_log(db: Session, nid_user: int | None, action: str, request: Request | None = None, details: str | None = None):
-    vip = request.client.host if request else None
+    vip = get_client_ip(request)
     user_agent = request.headers.get("user-agent") if request else None
     db_log = securityLogModel.SecurityLog(nid_user=nid_user, vaction=action, vip_address=vip, vuser_agent=user_agent, vdetails=details, dtimestamp=now_wib())
     db.add(db_log)
