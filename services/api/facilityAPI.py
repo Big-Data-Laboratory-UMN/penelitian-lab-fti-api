@@ -324,7 +324,7 @@ def read_scope_all_facilities_for_dropdown(
     """
     [SCOPED] Semua Facility (Active/Inactive) sesuai Departemen Admin.
     """
-    check_forbidden_roles(db, current_user)
+    # check_forbidden_roles(db, current_user)
     facilities_data = facilityController.get_scoped_facilities_for_dropdown(db=db, current_user=current_user)
     return facilities_data
 

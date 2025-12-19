@@ -46,8 +46,8 @@ REFRESH_TOKEN_COOKIE_EXPIRE_SECONDS = usersController.REFRESH_TOKEN_EXPIRE_DAYS 
 SHORT_REFRESH_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 # 1 hari dalam detik
 
 # Sesuaikan environment (development vs production)
-COOKIE_SECURE = False # Ganti True kalo udah HTTPS
-COOKIE_SAMESITE = 'lax' # 'strict' lebih aman tapi kadang kurang fleksibel -> ganti ke strict kalo udah production dan semua di HTTPS
+COOKIE_SECURE = True # Ganti True kalo udah HTTPS
+COOKIE_SAMESITE = 'strict' # 'strict' lebih aman tapi kadang kurang fleksibel -> ganti ke strict kalo udah production dan semua di HTTPS
 
 
 cfg = RefreshConfig(

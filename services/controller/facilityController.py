@@ -1,7 +1,7 @@
 import traceback  
 from fastapi import Request, UploadFile
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, desc, update, delete
+from sqlalchemy import or_, and_, desc, update, delete
 from datetime import datetime
 
 from ..schemas import facilitySchema as schema
@@ -187,6 +187,7 @@ def get_facilities(
 
     is_global = False
     allowed_dept_ids = set()
+    allowed_lab_ids = set()
 
     for access in admin_accesses:
         if access.role.vcode == 'SA':
@@ -195,6 +196,9 @@ def get_facilities(
         elif access.role.vcode == 'ADM':
             if access.nid_department:
                 allowed_dept_ids.add(access.nid_department)
+        elif access.role.vcode == 'PIC':
+            if access.nid_lab:
+                allowed_lab_ids.add(access.nid_lab)
 
     # 2. Build Base Query (SELECT Facility DAN Files)
     # Kita select dua-duanya biar bisa di-unpacking nanti (facility_obj, file_obj)
@@ -204,7 +208,7 @@ def get_facilities(
 
     # 3. Apply Scope Filter
     if not is_global:
-        if not allowed_dept_ids:
+        if not allowed_dept_ids and not allowed_lab_ids:
             return {"data": [], "total": 0}
         
         # Join ke relasi Lab -> Dept buat filter
@@ -217,8 +221,19 @@ def get_facilities(
         ).join(
             departmentLabModel.DepartmentLab,
             labModel.Lab.nid == departmentLabModel.DepartmentLab.nid_lab
-        ).filter(
-            departmentLabModel.DepartmentLab.nid_department.in_(allowed_dept_ids),
+        )
+
+        # Build Scope Conditions (Dept OR Lab)
+        scope_conditions = []
+        if allowed_dept_ids:
+            scope_conditions.append(departmentLabModel.DepartmentLab.nid_department.in_(allowed_dept_ids))
+        if allowed_lab_ids:
+            scope_conditions.append(labModel.Lab.nid.in_(allowed_lab_ids))
+        
+        query = query.filter(or_(*scope_conditions))
+
+        # Filter status relasi
+        query = query.filter(
             departmentLabModel.DepartmentLab.nstatus == 1,
             labFacilityModel.LabFacility.nstatus == 1
         ).distinct()
@@ -374,6 +389,7 @@ def _get_facilities_by_scope_logic(db: Session, current_user: usersSchema.User, 
 
     is_global = False
     allowed_dept_ids = set()
+    allowed_lab_ids = set()
 
     for access in admin_accesses:
         if access.role.vcode == 'SA':
@@ -382,6 +398,9 @@ def _get_facilities_by_scope_logic(db: Session, current_user: usersSchema.User, 
         elif access.role.vcode == 'ADM':
             if access.nid_department:
                 allowed_dept_ids.add(access.nid_department)
+        elif access.role.vcode == 'PIC':
+            if access.nid_lab:
+                allowed_lab_ids.add(access.nid_lab)
 
     # 2. Build Base Query (Select specific columns for dropdown)
     query = db.query(
@@ -395,8 +414,8 @@ def _get_facilities_by_scope_logic(db: Session, current_user: usersSchema.User, 
 
     # 3. Apply Filter Scope (Jika BUKAN SA)
     if not is_global:
-        if not allowed_dept_ids:
-            # Admin tanpa departemen = return kosong
+        if not allowed_dept_ids and not allowed_lab_ids:
+            # Admin tanpa departemen/lab = return kosong
             return {"data": []}
 
         # Join Berantai: Facility -> LabFacility -> Lab -> DepartmentLab
@@ -409,8 +428,17 @@ def _get_facilities_by_scope_logic(db: Session, current_user: usersSchema.User, 
         ).join(
             departmentLabModel.DepartmentLab,
             labModel.Lab.nid == departmentLabModel.DepartmentLab.nid_lab
-        ).filter(
-            departmentLabModel.DepartmentLab.nid_department.in_(allowed_dept_ids),
+        )
+
+        scope_conditions = []
+        if allowed_dept_ids:
+            scope_conditions.append(departmentLabModel.DepartmentLab.nid_department.in_(allowed_dept_ids))
+        if allowed_lab_ids:
+            scope_conditions.append(labModel.Lab.nid.in_(allowed_lab_ids))
+        
+        query = query.filter(or_(*scope_conditions))
+
+        query = query.filter(
             departmentLabModel.DepartmentLab.nstatus == 1,
             labFacilityModel.LabFacility.nstatus == 1
         ).distinct()
