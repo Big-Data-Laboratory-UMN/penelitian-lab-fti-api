@@ -79,15 +79,42 @@ Digunakan untuk aktivasi akun dan reset password.
 | :--- | :--- |
 | `STORAGE_DIR` | Path absolut folder upload | `/path/to/project/storage` |
 
-### 4. Database Migration & Seeding
+### 4. Setup Database & Migration (Alembic)
 
+Karena Alembic hanya mengelola tabel (bukan membuat database itu sendiri), ikuti langkah berikut secara berurutan:
+
+#### a. Buat Database Manual
+Buka MySQL Client (Workbench/DBeaver/CLI) dan buat database kosong sesuai nama di `.env`.
+```sql
+CREATE DATABASE laboratorium_fti;
+```
+
+#### b. Generate Initial Migration
+Jika folder `alembic/versions` masih kosong, jalankan perintah ini untuk membuat file migrasi pertama berdasarkan model yang ada.
 ```bash
-# Jalankan migrasi tabel
-alembic upgrade head
+# Pastikan sudah berada di root folder dan venv aktif
+alembic revision --autogenerate -m "Initial migration"
+```
+*Perintah ini akan men-scan file di `services/models` dan membuat script python di `alembic/versions/`.*
 
-# (Opsional) Isi data awal: Role, Default Admin, dll
+#### c. Terapkan Migrasi (Init Tables)
+Eksekusi file migrasi tersebut untuk membuat tabel fisik di database.
+```bash
+alembic upgrade head
+```
+
+#### d. Seeding Data Awal (Opsional)
+Isi database dengan data master default (Role, User Admin, dll).
+```bash
 python -m utils.seeder
 ```
+
+#### e. Alternatif (Jika Terkendala Alembic)
+> **⚠️ Note:** Sangat disarankan untuk tetap menggunakan **Alembic Migration** (langkah b & c) agar struktur database selalu sinkron dengan kode Python dan menjaga keakuratan data.
+
+Namun, jika Anda mengalami kesulitan teknis, Anda dapat meng-import file SQL yang telah disediakan secara manual:
+1.  Pastikan database kosong sudah dibuat.
+2.  Import file `sql/database.sql` ke database tersebut menggunakan MySQL Client pilihan Anda.
 
 ### 5. Menjalankan Server
 
