@@ -25,3 +25,18 @@ storage/
 .storage/
 
 chatbot/
+
+# Logs
+*.log
+gunicorn.log
+
+# Vim swap files
+*.swp
+*.swo
+
+# Temporary files
+next
+my-app@0.1.0
+
+# Alembic cache
+alembic/versions/__pycache__/

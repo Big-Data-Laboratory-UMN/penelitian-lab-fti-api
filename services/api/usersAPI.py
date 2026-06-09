@@ -1,23 +1,35 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Form # Tambah Request, Response, Form
-# from fastapi.security import OAuth2PasswordRequestForm # Gak dipake lagi di /token
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Form
 from sqlalchemy.orm import Session
-from typing import List, Optional, Annotated 
+from typing import Optional
 from datetime import timedelta, datetime
+import uuid
+import os
+import logging
+
 from ..controller import userAccessController, auditLogController
 from ..schemas import usersSchema as schema
-from ..schemas.usersSchema import UserRegister, ActivationToken,  RequestPasswordReset, ResetPassword
+from ..schemas.usersSchema import (
+    UserRegister, ActivationToken, RequestPasswordReset, ResetPassword
+)
 from ..controller import usersController
 from ..models import usersModel as models
-from ..database import SessionLocal # Import SessionLocal untuk db_factory
-import uuid
-from ..schemas import userAccessSchema      # Pastikan ini ada
-from ..models import userAccessModel, rolesModel # Buat query scope & role ID
+from ..database import SessionLocal
+from ..schemas import userAccessSchema
+from ..models import userAccessModel, rolesModel
+from ..models.tokenModel import Token
 
 from utils.token_refresh import RefreshConfig, refresh_access_cookie
 
-from datetime import datetime
 import pytz
 
+# ------------------------------------------------------------------
+# Logger
+# ------------------------------------------------------------------
+logger = logging.getLogger(__name__)
+
+# ------------------------------------------------------------------
+# Timezone helper
+# ------------------------------------------------------------------
 JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
 
 def to_wib(dt: datetime) -> datetime:
@@ -25,6 +37,52 @@ def to_wib(dt: datetime) -> datetime:
         return dt
     return JAKARTA_TZ.localize(dt) if dt.tzinfo is None else dt.astimezone(JAKARTA_TZ)
 
+# ------------------------------------------------------------------
+# Role constants – hindari string literal rawan typo
+# ------------------------------------------------------------------
+ALLOWED_ADMIN_ROLES = frozenset({"SA", "ADM"})
+
+# ------------------------------------------------------------------
+# Cookie configuration dengan validasi SameSite
+# ------------------------------------------------------------------
+ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS = usersController.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+REFRESH_TOKEN_COOKIE_EXPIRE_SECONDS = usersController.REFRESH_TOKEN_EXPIRE_DAYS * 60 * 60 * 24
+SHORT_REFRESH_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24          # 1 hari
+
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in ("true", "1", "yes")
+_raw_samesite = os.getenv("COOKIE_SAMESITE", "lax").lower()
+if _raw_samesite in ("lax", "strict", "none"):
+    COOKIE_SAMESITE = _raw_samesite
+else:
+    logger.warning(
+        "COOKIE_SAMESITE=%s tidak valid, fallback ke 'lax'", _raw_samesite
+    )
+    COOKIE_SAMESITE = "lax"
+
+if COOKIE_SAMESITE == "none" and not COOKIE_SECURE:
+    logger.warning(
+        "COOKIE_SAMESITE='none' tetapi COOKIE_SECURE=False, "
+        "memaksa secure=True"
+    )
+    COOKIE_SECURE = True
+
+# 🔥 Default None: cookie mengikuti host request (paling aman di dev).
+#    Di production, set env COOKIE_DOMAIN (misal "labfti.umn.ac.id").
+COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN")  # default None
+
+cfg = RefreshConfig(
+    access_cookie_key="access_token",
+    refresh_cookie_key="refresh_token",
+    access_cookie_path="/",
+    refresh_cookie_path="/users/refresh_token",
+    cookie_secure=COOKIE_SECURE,
+    cookie_samesite=COOKIE_SAMESITE,
+    access_cookie_max_age=ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS,
+)
+
+# ------------------------------------------------------------------
+# Router
+# ------------------------------------------------------------------
 router = APIRouter(
     prefix="/users",
     tags=["Users"]
@@ -37,283 +95,276 @@ def get_db():
     finally:
         db.close()
 
-# --- Settingan Cookie ---
-# Ambil durasi dari controller (atau definisikan ulang di sini kalo mau)
-ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS = usersController.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-# Durasi panjang refresh token (dari controller)
-REFRESH_TOKEN_COOKIE_EXPIRE_SECONDS = usersController.REFRESH_TOKEN_EXPIRE_DAYS * 60 * 60 * 24
-# Definisikan durasi pendek refresh token (misal 1 hari)
-SHORT_REFRESH_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 # 1 hari dalam detik
+# ------------------------------------------------------------------
+# Helper: ambil IP asli (di belakang proxy)
+# ------------------------------------------------------------------
+def get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        # Bisa berisi beberapa IP, ambil yang pertama
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
 
-# Sesuaikan environment (development vs production)
-COOKIE_SECURE = True # Ganti True kalo udah HTTPS
-COOKIE_SAMESITE = 'strict' # 'strict' lebih aman tapi kadang kurang fleksibel -> ganti ke strict kalo udah production dan semua di HTTPS
-
-
-cfg = RefreshConfig(
-    access_cookie_key="access_token",
-    refresh_cookie_key="refresh_token",
-    access_cookie_path="/",
-    refresh_cookie_path="/users/refresh_token",
-    cookie_secure=COOKIE_SECURE,
-    cookie_samesite=COOKIE_SAMESITE,
-    access_cookie_max_age=ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS,
-)
-
-@router.post("/token") # Hapus response_model=schema.TokenResponse
+# ------------------------------------------------------------------
+# LOGIN
+# ------------------------------------------------------------------
+@router.post("/token")
 async def login_for_access_token(
-    response: Response, # Inject Response object
+    response: Response,
     request: Request,
-    # --- Terima form data secara manual ---
-    username: str = Form(...), # Ambil username (email)
-    password: str = Form(...), # Ambil password
-    rememberMe: bool = Form(False), # Ambil rememberMe, default False
-    # --- End form data manual ---
-    db: Session = Depends(get_db)
+    username: str = Form(...),
+    password: str = Form(...),
+    rememberMe: bool = Form(False),
+    db: Session = Depends(get_db),
 ):
     """
     Endpoint login. Autentikasi user, set HttpOnly cookies.
-    Durasi refresh token cookie tergantung nilai rememberMe.
+    Tidak mengembalikan token di response body (keamanan XSS).
     """
-    print(f"[API /token] Login attempt received for username: {username}")
-    print(f"[API /token] Remember Me: {rememberMe}")
+    logger.info("Login attempt untuk username: %s, rememberMe: %s", username, rememberMe)
 
     try:
-        # Autentikasi
-        user = usersController.authenticate_user(db, email=username, request=request, password=password)
+        # 1. Autentikasi
+        user = usersController.authenticate_user(
+            db, email=username, request=request, password=password
+        )
         if not user:
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Email atau password salah",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
-        
-        try:
-            db.commit() # Ini buat nyimpen log LOGIN_SUCCESS
-        except Exception as commit_err:
-            db.rollback()
-            # Kalo log-nya gagal, gagalin login-nya juga
-            print(f"[AUDIT LOG ERROR] Gagal commit log LOGIN_SUCCESS: {commit_err}")
-            raise HTTPException(status_code=500, detail="Gagal mencatat log login.")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email atau password salah",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
-        # --- Tentukan durasi refresh token berdasarkan rememberMe ---
+        # 2. Catat log LOGIN_SUCCESS (belum commit)
+        auditLogController.create_security_log(
+            db=db,
+            nid_user=user.nid,
+            action="LOGIN_SUCCESS",
+            request=request,
+            details=f"User {user.vemail} berhasil login.",
+        )
+
+        # 3. Durasi token berdasarkan rememberMe
         if rememberMe:
-            refresh_token_duration_seconds = REFRESH_TOKEN_COOKIE_EXPIRE_SECONDS
-            refresh_token_expires_delta = timedelta(days=usersController.REFRESH_TOKEN_EXPIRE_DAYS)
-            print(f"[API /token] Using long refresh token duration: {usersController.REFRESH_TOKEN_EXPIRE_DAYS} days")
+            refresh_duration_s = REFRESH_TOKEN_COOKIE_EXPIRE_SECONDS
+            refresh_delta = timedelta(days=usersController.REFRESH_TOKEN_EXPIRE_DAYS)
+            logger.debug("Menggunakan long refresh token: %d detik", refresh_duration_s)
         else:
-            refresh_token_duration_seconds = SHORT_REFRESH_TOKEN_EXPIRE_SECONDS
-            refresh_token_expires_delta = timedelta(seconds=SHORT_REFRESH_TOKEN_EXPIRE_SECONDS)
-            print(f"[API /token] Using short refresh token duration: {SHORT_REFRESH_TOKEN_EXPIRE_SECONDS / 3600 / 24} days")
-        # --- End Tentukan Durasi ---
+            refresh_duration_s = SHORT_REFRESH_TOKEN_EXPIRE_SECONDS
+            refresh_delta = timedelta(seconds=SHORT_REFRESH_TOKEN_EXPIRE_SECONDS)
+            logger.debug("Menggunakan short refresh token: %d detik", refresh_duration_s)
 
-        # Buat token (Access token tetep pendek)
-        access_token_expires_delta = timedelta(minutes=usersController.ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_delta = timedelta(minutes=usersController.ACCESS_TOKEN_EXPIRE_MINUTES)
 
+        # 4. Buat token
         access_token = usersController.create_access_token(
-            data={"sub": str(user.nid)}, expires_delta=access_token_expires_delta
+            data={"sub": str(user.nid)}, expires_delta=access_delta
         )
         refresh_token = usersController.create_refresh_token(
-            data={"sub": str(user.nid)}, expires_delta=refresh_token_expires_delta # <-- Pake delta yg sesuai
+            data={"sub": str(user.nid)}, expires_delta=refresh_delta
         )
+        logger.info("Token berhasil dibuat untuk user %s (ID: %s)", user.vemail, user.nid)
 
-        print(f"[API /token] Token generated successfully for user {user.vemail} (ID: {user.nid})")
+        # 5. Invalidasi session lama (satu user hanya satu session aktif)
+        db.query(Token).filter(
+            Token.nid_user == user.nid,
+            Token.ntoken_type == 2,          # tipe login session
+            Token.nstatus == 1               # masih aktif
+        ).update({
+            "nstatus": 0,
+            "dmodified_at": to_wib(datetime.now(JAKARTA_TZ)),
+        })
 
-        # --- Set HTTP-Only Cookies ---
+        # 6. Simpan session baru
+        ip_address = get_client_ip(request)
+        access_expire_dt = to_wib(datetime.now(JAKARTA_TZ)) + timedelta(seconds=ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS)
+        refresh_expire_dt = to_wib(datetime.now(JAKARTA_TZ)) + timedelta(seconds=refresh_duration_s)
+
+        db_token = Token(
+            nid_user=user.nid,
+            ntoken_type=2,
+            vcode=str(uuid.uuid4()),
+            vaccess_token=access_token,
+            vrefresh_token=refresh_token,
+            dexpires_at=access_expire_dt,
+            drefresh_expire_at=refresh_expire_dt,
+            nstatus=1,
+            vip_address=ip_address,
+            vbrowser_info=request.headers.get("user-agent"),
+        )
+        db.add(db_token)
+
+        # 7. Commit seluruh transaksi (log + session)
+        db.commit()
+        logger.info("Transaksi login berhasil di-commit untuk %s", user.vemail)
+
+        # 8. Set HttpOnly cookies
         response.set_cookie(
             key="access_token",
             value=access_token,
             httponly=True,
-            max_age=ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS, # Access token tetep pendek
+            max_age=ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS,
             expires=ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS,
             path="/",
             secure=COOKIE_SECURE,
-            samesite=COOKIE_SAMESITE
+            samesite=COOKIE_SAMESITE,
+            domain=COOKIE_DOMAIN,
         )
-        print(f"[API /token] Access token cookie set (expires in {ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS}s).")
-
         response.set_cookie(
             key="refresh_token",
             value=refresh_token,
             httponly=True,
-            max_age=refresh_token_duration_seconds, # <-- Pake durasi yg sesuai
-            expires=refresh_token_duration_seconds, # <-- Pake durasi yg sesuai
-            path="/users/refresh_token", # <-- Path spesifik
+            max_age=refresh_duration_s,
+            expires=refresh_duration_s,
+            path="/users/refresh_token",
             secure=COOKIE_SECURE,
-            samesite=COOKIE_SAMESITE
+            samesite=COOKIE_SAMESITE,
+            domain=COOKIE_DOMAIN,
         )
-        print(f"[API /token] Refresh token cookie set (expires in {refresh_token_duration_seconds}s, path: /users/refresh_token).")
-        # --- End Set Cookies ---
+        logger.info("Cookie access & refresh berhasil diset untuk %s", user.vemail)
 
+        # 9. Response tanpa token (hanya informasi non‑sensitif)
         user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=user.nid)
         base = schema.User.model_validate(user).model_dump()
         user_response = schema.UserWithRoles(**base, roles=user_roles)
-        
-        print(f"[API /token] Login successful for {user.vemail}. Returning user data.")
-        
-        return {"user": user_response, "refresh_token": refresh_token, "access_token": access_token, "token_type": "bearer", "access_expires_in": ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS, "refresh_expires_in": refresh_token_duration_seconds}
 
-    except ValueError as e:
-         print(f"[API /token] Login failed for {username}: {str(e)}")
-         raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
+        return {
+            "user": user_response,
+            "token_type": "bearer",
+            "access_expires_in": ACCESS_TOKEN_COOKIE_EXPIRE_SECONDS,
+            "refresh_expires_in": refresh_duration_s,
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        error_message = str(e)
-        print(f"[API /token] Unexpected error during login for {username}: {e}")
-        
-        if "401" in error_message or "Unauthorized" in error_message:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Email atau password salah."
-            )
-        
+        db.rollback()
+        logger.exception("Unexpected error saat login user %s: %s", username, e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Terjadi kesalahan pada server saat mencoba login."
+            detail="Terjadi kesalahan pada server saat mencoba login.",
         )
 
+# ------------------------------------------------------------------
+# REFRESH TOKEN (sekarang dengan logging + error handling)
+# ------------------------------------------------------------------
 @router.post("/refresh_token")
 async def refresh_token_endpoint(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
 ):
-    return await refresh_access_cookie(
-        request=request,
-        response=response,
-        db=db,
-        users_controller=usersController,
-        cfg=cfg,
-    )
+    try:
+        logger.debug("Refresh token attempt from %s", get_client_ip(request))
+        result = await refresh_access_cookie(
+            request=request,
+            response=response,
+            db=db,
+            users_controller=usersController,
+            cfg=cfg,
+        )
+        logger.info("Refresh token berhasil")
+        return result
+    except Exception as e:
+        logger.exception("Refresh token error: %s", e)
+        raise
 
-# --- Endpoint yang Membutuhkan Autentikasi ---
-# Menggunakan dependency usersController.get_current_active_user_from_cookie
+# ------------------------------------------------------------------
+# ENDPOINT TERPROTEKSI
+# ------------------------------------------------------------------
 
-@router.get("/me", response_model=schema.UserWithRoles) 
+@router.get("/me", response_model=schema.UserWithRoles)
 async def read_users_me(
     current_user: models.User = Depends(usersController.get_current_active_user_from_cookie),
     db: Session = Depends(get_db)
 ):
-    """Mengembalikan data user yang sedang login (termasuk roles)."""
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
+    user_data = schema.User.model_validate(current_user).model_dump()
+    return schema.UserWithRoles(**user_data, roles=user_roles)
 
-    user_data_validated = schema.User.model_validate(current_user)
-
-    response_data = schema.UserWithRoles(
-        **user_data_validated.model_dump(),
-        roles=user_roles
-    )
-
-    return response_data
 
 @router.post("/admin-create", response_model=schema.User, status_code=status.HTTP_201_CREATED)
 async def create_user_from_admin_panel(
     user_data: schema.UserCreateByAdmin,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
-    """Membuat user baru oleh admin (membutuhkan hak akses)."""
-    # ... (Logika print & permission check existing biarkan saja) ...
-    
-    # [Existing Code] Permission Check
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    allowed_roles = {"SA", "ADM"}
-    if not any(role in allowed_roles for role in user_roles):
+    if not any(role in ALLOWED_ADMIN_ROLES for role in user_roles):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak punya hak akses untuk membuat pengguna baru."
+            detail="Anda tidak punya hak akses untuk membuat pengguna baru.",
         )
 
     try:
         user_data.vcreated_by = current_user.vcode
-        
-        # 1. Create User (Existing)
         new_user = await usersController.create_user_by_admin(
             db=db, user_data=user_data, request=request, app=request.app, db_factory=SessionLocal
         )
-        
-        # --- [LOGIC BARU: AUTO ASSIGN VISITOR ACCESS] ---
-        # Cek apakah Creator adalah ADMIN (ADM) dan punya Departemen
-        admin_access = db.query(userAccessModel.UserAccess).join(
-            rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid
-        ).filter(
-            userAccessModel.UserAccess.nid_user == current_user.nid,
-            rolesModel.Role.vcode == 'ADM',
-            userAccessModel.UserAccess.nstatus == 1
-        ).first()
 
-        # Jika yang bikin adalah Admin Department
+        # Jika admin department, auto‑assign role Visitor (VSTR)
+        admin_access = (
+            db.query(userAccessModel.UserAccess)
+            .join(rolesModel.Role, userAccessModel.UserAccess.nid_role == rolesModel.Role.nid)
+            .filter(
+                userAccessModel.UserAccess.nid_user == current_user.nid,
+                rolesModel.Role.vcode == "ADM",
+                userAccessModel.UserAccess.nstatus == 1,
+            )
+            .first()
+        )
+
         if admin_access and admin_access.nid_department:
-            print(f"[AutoAccess] Admin Dept ID {admin_access.nid_department} detected. Assigning VSTR role...")
-            
-            # Cari ID Role 'VSTR' (Visitor)
-            visitor_role = db.query(rolesModel.Role).filter(rolesModel.Role.vcode == 'VSTR').first()
-            
+            visitor_role = db.query(rolesModel.Role).filter(rolesModel.Role.vcode == "VSTR").first()
             if visitor_role:
-                # Generate vcode unik untuk UserAccess
                 ua_vcode = f"UACC-{uuid.uuid4().hex[:8].upper()}"
-                
-                # Siapkan data UserAccess
-                new_access_data = userAccessSchema.UserAccessCreate(
+                new_access = userAccessSchema.UserAccessCreate(
                     vcode=ua_vcode,
-                    nid_user=new_user.nid,       # User yang baru dibuat
-                    nid_role=visitor_role.nid,   # Role Visitor
-                    nid_department=admin_access.nid_department, # Dept si Admin
-                    nid_lab=None,                # Default kosong dulu
-                    vcreated_by=current_user.vcode
+                    nid_user=new_user.nid,
+                    nid_role=visitor_role.nid,
+                    nid_department=admin_access.nid_department,
+                    nid_lab=None,
+                    vcreated_by=current_user.vcode,
                 )
-                
-                # Create Access via Controller
-                userAccessController.create_user_access(db=db, user_access=new_access_data)
-                print(f"[AutoAccess] Success: User {new_user.vemail} assigned as VSTR in Dept {admin_access.nid_department}")
+                userAccessController.create_user_access(db=db, user_access=new_access)
+                logger.info("Auto-assign VSTR untuk user %s di dept %s", new_user.vemail, admin_access.nid_department)
             else:
-                print("[AutoAccess] Warning: Role 'VSTR' not found in database. Auto-assign failed.")
-        # ------------------------------------------------
+                logger.warning("Role VSTR tidak ditemukan, auto-assign gagal.")
 
-        print(f"[API /admin-create] User {new_user.vemail} created successfully.")
+        logger.info("User %s berhasil dibuat oleh %s", new_user.vemail, current_user.vemail)
         return new_user
 
     except ValueError as e:
-        print(f"[API /admin-create] Failed: {str(e)}")
+        logger.warning("Gagal admin-create: %s", e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-         print(f"[API /admin-create] Unexpected error: {e}")
-         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal membuat pengguna.")
+        logger.exception("Unexpected error admin-create: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal membuat pengguna.")
 
 
 @router.post("/register", response_model=schema.User, status_code=status.HTTP_201_CREATED)
 async def register_user_publicly(
-    user_data: UserRegister, # <-- Pake schema baru kita
+    user_data: UserRegister,
     request: Request,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """Endpoint publik untuk user registrasi baru."""
-    print(f"[API /register] Request registrasi diterima untuk email: {user_data.vemail}")
+    logger.info("Registrasi publik diterima untuk email: %s", user_data.vemail)
     try:
-        # Panggil controller baru kita
         new_user = await usersController.register_new_user(
-            db=db, 
-            user_data=user_data, 
-            app=request.app, 
-            request=request,
-            db_factory=SessionLocal
+            db=db, user_data=user_data, app=request.app, request=request, db_factory=SessionLocal
         )
-        print(f"[API /register] User {new_user.vemail} berhasil dibuat (Pending).")
+        logger.info("User %s berhasil dibuat (pending)", new_user.vemail)
         return new_user
     except ValueError as e:
-        error_detail = str(e)
-        print(f"[API /register] Gagal: {error_detail}")
-        # Cek error spesifik buat HTTP status code yg pas
-        if "sudah terdaftar" in error_detail or "sudah digunakan" in error_detail:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=error_detail)
-        else:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail)
+        detail = str(e)
+        logger.warning("Registrasi gagal: %s", detail)
+        if "sudah terdaftar" in detail or "sudah digunakan" in detail:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
     except Exception as e:
-         print(f"[API /register] Unexpected error: {e}")
-         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mendaftarkan pengguna.")
+        logger.exception("Unexpected error register: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mendaftarkan pengguna.")
 
 
 @router.put("/{user_vcode}", response_model=schema.User)
@@ -322,142 +373,100 @@ async def update_existing_user(
     user_update_data: schema.UserUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
-    """Mengupdate data user (membutuhkan hak akses atau user itu sendiri)."""
-    print(f"[API PUT /users/{user_vcode}] Request received from user: {current_user.vemail}")
+    logger.info("Update user %s diminta oleh %s", user_vcode, current_user.vemail)
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    print(f"[API PUT /users/{user_vcode}] User roles: {user_roles}")
-    
-    # --- AMBIL INFO USER TARGET (UDAH ADA) ---
+
     target_user = usersController.get_user_by_code(db, user_code=user_vcode)
     if not target_user:
-         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna yang akan diupdate tidak ditemukan.")
-    
-    # Simpen info lama buat logging
-    target_user_nid = target_user.nid
-    target_user_email = target_user.vemail
-    # ----------------------------------------
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna tidak ditemukan.")
 
-    is_updating_self = current_user.vcode == user_vcode
-    allowed_admin_roles = {"SA", 'ADM'} # Sesuaikan
-    is_allowed_admin = any(role in allowed_admin_roles for role in user_roles)
+    is_self = current_user.vcode == user_vcode
+    is_admin = any(role in ALLOWED_ADMIN_ROLES for role in user_roles)
 
-    if not is_updating_self and not is_allowed_admin:
-        print(f"[API PUT /users/{user_vcode}] Forbidden: User {current_user.vemail} cannot update user {user_vcode}.")
+    if not is_self and not is_admin:
+        logger.warning("Forbidden update: %s -> %s", current_user.vemail, user_vcode)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak punya hak akses untuk mengupdate pengguna ini."
+            detail="Anda tidak punya hak akses untuk mengupdate pengguna ini.",
         )
 
     try:
         user_update_data.vmodified_by = current_user.vcode
-        db_user = await usersController.update_user(
-            db=db, user_vcode=user_vcode, user=user_update_data, app=request.app, db_factory=SessionLocal, request=request
+        updated_user = await usersController.update_user(
+            db=db, user_vcode=user_vcode, user=user_update_data,
+            app=request.app, db_factory=SessionLocal, request=request,
         )
-        if db_user is None:
-            print(f"[API PUT /users/{user_vcode}] Update failed: User not found.")
+        if updated_user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        
-        # --- [INI TAMBAHANNYA] ---
-        # (Kita log ini walaupun user-nya update data diri sendiri, 
-        #  tapi detailnya bisa dibedain dari message log-nya)
-        log_details = ""
-        if is_updating_self:
-            log_details = f"User {current_user.vemail} (NID: {current_user.nid}) memperbarui datanya sendiri."
-        else:
-            log_details = f"Admin {current_user.vemail} memperbarui data akun: {target_user_email} (NID: {target_user_nid})"
 
-        try:
-            auditLogController.create_security_log(
-                db=db, 
-                nid_user=current_user.nid, # NID user yg melakukan aksi
-                action="ACCOUNT_UPDATED", 
-                request=request, 
-                details=log_details
-            )
-            db.commit() # Commit log-nya
-            print(f"[AUDIT LOG] Security log committed for ACCOUNT_UPDATED.")
-        except Exception as log_err:
-            db.rollback()
-            print(f"[AUDIT LOG ERROR] Gagal menyimpan security log update: {log_err}")
-        # ---------------------------
+        # Security log
+        log_detail = (
+            f"User {current_user.vemail} memperbarui datanya sendiri."
+            if is_self
+            else f"Admin {current_user.vemail} memperbarui akun {target_user.vemail}."
+        )
+        auditLogController.create_security_log(
+            db=db, nid_user=current_user.nid, action="ACCOUNT_UPDATED",
+            request=request, details=log_detail,
+        )
+        db.commit()
+        logger.info("User %s berhasil diupdate oleh %s", user_vcode, current_user.vemail)
+        return updated_user
 
-        print(f"[API PUT /users/{user_vcode}] User updated successfully by {current_user.vemail}.")
-        return db_user
-        
     except ValueError as e:
-        print(f"[API PUT /users/{user_vcode}] Update failed: {str(e)}")
+        logger.warning("Update gagal: %s", e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-         print(f"[API PUT /users/{user_vcode}] Unexpected error: {e}")
-         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengupdate pengguna.")
+        logger.exception("Unexpected error update: %s", e)
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengupdate pengguna.")
 
 
 @router.delete("/{user_vcode}", status_code=status.HTTP_204_NO_CONTENT)
 def soft_delete_user(
     user_vcode: str,
-    response: Response, 
+    response: Response,
     request: Request,
     db: Session = Depends(get_db),
     current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
-    """Melakukan soft delete user (membutuhkan hak akses)."""
-    print(f"[API DELETE /users/{user_vcode}] Request received from user: {current_user.vemail}")
+    logger.info("Soft delete user %s oleh %s", user_vcode, current_user.vemail)
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    print(f"[API DELETE /users/{user_vcode}] User roles: {user_roles}")
 
-    allowed_roles = {"SA", 'ADM'} # Sesuaikan
-    if not any(role in allowed_roles for role in user_roles):
-         print(f"[API DELETE /users/{user_vcode}] Forbidden: User {current_user.vemail} cannot delete users.")
-         raise HTTPException(
-             status_code=status.HTTP_403_FORBIDDEN,
-             detail="Anda tidak punya hak akses untuk menghapus pengguna."
-         )
+    if not any(role in ALLOWED_ADMIN_ROLES for role in user_roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Anda tidak punya hak akses untuk menghapus pengguna.",
+        )
 
     if current_user.vcode == user_vcode:
-         print(f"[API DELETE /users/{user_vcode}] Forbidden: User cannot delete self.")
-         raise HTTPException(
-             status_code=status.HTTP_400_BAD_REQUEST,
-             detail="Tidak dapat menghapus akun sendiri."
-         )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Tidak dapat menghapus akun sendiri.",
+        )
 
-    # --- 2. AMBIL INFO USER TARGET SEBELUM DELETE ---
     target_user = usersController.get_user_by_code(db, user_code=user_vcode)
     if not target_user:
-        print(f"[API DELETE /users/{user_vcode}] Delete failed: User not found (pre-check).")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna tidak ditemukan.")
-    
-    # Simpen data user target buat logging
-    target_user_nid = target_user.nid 
-    target_user_email = target_user.vemail
-    # ------------------------------------------------
 
-    # Panggil controller buat soft delete
     deleted_user = usersController.delete_user(db=db, user_vcode=user_vcode, current_user=current_user.vcode)
-
     if deleted_user is None or deleted_user.nstatus != 0:
-        print(f"[API DELETE /users/{user_vcode}] Delete failed: User not found or internal error during delete.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna tidak ditemukan atau gagal dihapus.")
-    
-    # --- 3. TAMBAHIN SECURITY LOG ---
+
     try:
         auditLogController.create_security_log(
-            db=db, 
-            nid_user=current_user.nid, # NID Admin yg nge-delete
-            action="ACCOUNT_DEACTIVATED", # Aksi yang lebih spesifik
-            request=request, 
-            details=f"Admin {current_user.vemail} menonaktifkan akun: {target_user_email} (NID: {target_user_nid})"
+            db=db, nid_user=current_user.nid, action="ACCOUNT_DEACTIVATED",
+            request=request,
+            details=f"Admin {current_user.vemail} menonaktifkan akun {target_user.vemail}",
         )
-        db.commit() # <-- 4. COMMIT LOG-NYA
-        print(f"[AUDIT LOG] Security log committed for ACCOUNT_DEACTIVATED.")
+        db.commit()
+        logger.info("Soft delete & log berhasil untuk %s", user_vcode)
     except Exception as log_err:
         db.rollback()
-        # Sebaiknya jangan gagalin seluruh proses kalo log gagal, tapi catet errornya
-        print(f"[AUDIT LOG ERROR] Gagal menyimpan security log: {log_err}")
-    # --------------------------------
+        logger.exception("Gagal menyimpan security log delete: %s", log_err)
 
-    print(f"[API DELETE /users/{user_vcode}] User soft deleted successfully by {current_user.vemail}.")
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -471,329 +480,285 @@ def read_all_users(
     email: Optional[str] = None,
     code: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
-    """Mengambil daftar user (membutuhkan hak akses)."""
-    print(f"[API GET /users/] Request received from user: {current_user.vemail}")
+    logger.info("GET /users/ oleh %s", current_user.vemail)
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    print(f"[API GET /users/] User roles: {user_roles}")
+    if not any(role in ALLOWED_ADMIN_ROLES for role in user_roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
 
-    allowed_roles = {"SA", "ADM"} 
-    if not any(role in allowed_roles for role in user_roles):
-        print(f"[API GET /users/] Forbidden: User {current_user.vemail} cannot view user list.")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak punya hak akses untuk melihat daftar pengguna."
-        )
-
-    users_data = usersController.get_users(
-        db=db, 
-        current_user=current_user, 
-        skip=skip, 
-        limit=limit, 
-        search=search,
-        nstatus=nstatus, 
-        vname=name, 
-        vemail=email, 
-        vcode=code
+    return usersController.get_users(
+        db=db, current_user=current_user, skip=skip, limit=limit,
+        search=search, nstatus=nstatus, vname=name, vemail=email, vcode=code,
     )
 
-    print(f"[API GET /users/] Returning {len(users_data['data'])} users (Total: {users_data['total']}).")
-    return users_data
 
 @router.get("/{user_id}", response_model=schema.User)
 def get_user_by_id(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
-    """Mengambil detail user berdasarkan ID (membutuhkan hak akses)."""
-    print(f"[API GET /users/{user_id}] Request received from user: {current_user.vemail}")
+    logger.info("GET /users/%d oleh %s", user_id, current_user.vemail)
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    print(f"[API GET /users/{user_id}] User roles: {user_roles}")
-
-    allowed_roles = {"SA", "ADM"} # Sesuaikan
-    is_allowed_admin = any(role in allowed_roles for role in user_roles)
-    is_requesting_self = current_user.nid == user_id
-
-    if not is_allowed_admin and not is_requesting_self:
-         print(f"[API GET /users/{user_id}] Forbidden: User {current_user.vemail} cannot view user ID {user_id}.")
-         raise HTTPException(
-             status_code=status.HTTP_403_FORBIDDEN,
-             detail="Anda tidak punya hak akses untuk melihat pengguna ini."
-         )
+    is_admin = any(role in ALLOWED_ADMIN_ROLES for role in user_roles)
+    if not is_admin and current_user.nid != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
 
     user = usersController.get_user(db=db, user_id=user_id)
-    if user is None:
-        print(f"[API GET /users/{user_id}] Failed: User not found.")
+    if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna tidak ditemukan")
-    print(f"[API GET /users/{user_id}] User found: {user.vemail}.")
     return user
 
 
 @router.get("/all-for-dropdown/", response_model=schema.UserDropdownResponse)
 def read_all_users_for_dropdown(
     db: Session = Depends(get_db),
-    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
-    """Mengambil daftar user aktif untuk dropdown (membutuhkan hak akses)."""
-    print(f"[API /all-for-dropdown/] Request received from user: {current_user.vemail}")
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    print(f"[API /all-for-dropdown/] User roles: {user_roles}")
+    if not any(role in ALLOWED_ADMIN_ROLES for role in user_roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
+    return usersController.get_all_users_for_dropdown(db=db)
 
-    allowed_roles = {"SA", "ADM"} # Sesuaikan
-    if not any(role in allowed_roles for role in user_roles):
-        print(f"[API /all-for-dropdown/] Forbidden: User {current_user.vemail} cannot access dropdown list.")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Anda tidak punya hak akses untuk data ini."
-        )
-
-    users_data = usersController.get_all_users_for_dropdown(db=db)
-    print(f"[API /all-for-dropdown/] Returning {len(users_data['data'])} active users for dropdown.")
-    return users_data
 
 @router.get("/scope-all-for-dropdown/", response_model=schema.UserDropdownResponse)
 def read_scope_all_users_for_dropdown(
     db: Session = Depends(get_db),
-    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
-    """
-    [SCOPED] Semua User (Active/Inactive) sesuai Departemen Admin.
-    """
-    # Cek hak akses
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    if not any(role in {"SA", "ADM"} for role in user_roles):
+    if not any(role in ALLOWED_ADMIN_ROLES for role in user_roles):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
-    
-    users_data = usersController.get_scoped_users_for_dropdown(db=db, current_user=current_user)
-    return users_data
+    return usersController.get_scoped_users_for_dropdown(db=db, current_user=current_user)
+
 
 @router.get("/scope-active-for-dropdown/", response_model=schema.UserDropdownResponse)
 def read_scope_active_users_for_dropdown(
     db: Session = Depends(get_db),
-    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
-    """
-    [SCOPED] User Aktif Saja sesuai Departemen Admin.
-    """
-    # Cek hak akses
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    if not any(role in {"SA", "ADM"} for role in user_roles):
+    if not any(role in ALLOWED_ADMIN_ROLES for role in user_roles):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
-    
-    users_data = usersController.get_scoped_active_users_for_dropdown(db=db, current_user=current_user)
-    return users_data
+    return usersController.get_scoped_active_users_for_dropdown(db=db, current_user=current_user)
+
 
 @router.get("/all-active-for-dropdown/", response_model=schema.UserDropdownResponse)
-def read_all_users_for_dropdown(
+def read_all_active_users_for_dropdown(
     db: Session = Depends(get_db),
-    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie)
+    current_user: schema.User = Depends(usersController.get_current_active_user_from_cookie),
 ):
-    """Mengambil daftar user aktif untuk dropdown (membutuhkan hak akses)."""
-    print(f"[API /all-active-for-dropdown/] Request received from user: {current_user.vemail}")
     user_roles = userAccessController.get_user_roles_by_user_id(db=db, user_id=current_user.nid)
-    print(f"[API /all-active-for-dropdown/] User roles: {user_roles}")
+    if not any(role in ALLOWED_ADMIN_ROLES for role in user_roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden.")
+    return usersController.get_all_active_users_for_dropdown(db=db)
 
-    allowed_roles = {"SA", "ADM"} # Sesuaikan
-    if not any(role in allowed_roles for role in user_roles):
-         print(f"[API /all-active-for-dropdown/] Forbidden: User {current_user.vemail} cannot access dropdown list.")
-         raise HTTPException(
-             status_code=status.HTTP_403_FORBIDDEN,
-             detail="Anda tidak punya hak akses untuk data ini."
-         )
 
-    users_data = usersController.get_all_active_users_for_dropdown(db=db)
-    print(f"[API /all-active-for-dropdown/] Returning {len(users_data['data'])} active users for dropdown.")
-    return users_data
-
-# --- Endpoint Publik (tidak butuh autentikasi) ---
+# ------------------------------------------------------------------
+# ENDPOINT PUBLIK
+# ------------------------------------------------------------------
 
 @router.get("/anonymous/{user_vcode}", response_model=schema.UserSafeResponse)
-def read_user_anonymous(
-    user_vcode: str,
-    db: Session = Depends(get_db)
-):
-    """
-    Mengambil data user secara anonymous (hanya nama dan email).
-    """
-    print(f"[API /anonymous/{user_vcode}] Request received.")
+def read_user_anonymous(user_vcode: str, db: Session = Depends(get_db)):
+    logger.info("Anonymous lookup: %s", user_vcode)
     user = usersController.get_user_by_code(db, user_code=user_vcode)
     if not user:
-        print(f"[API /anonymous/{user_vcode}] User not found.")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pengguna tidak ditemukan")
-    
-    print(f"[API /anonymous/{user_vcode}] User found: {user.vemail}")
     return user
 
+
 @router.post("/set-initial-password", response_model=schema.User)
-def set_user_initial_password(password_data: schema.SetInitialPassword, request: Request, db: Session = Depends(get_db)):
-    """Endpoint publik untuk user set password awal pakai token aktivasi."""
-    print(f"[API /set-initial-password] Request received for token: {password_data.token[:5]}...")
+def set_user_initial_password(
+    password_data: schema.SetInitialPassword, request: Request, db: Session = Depends(get_db)
+):
+    logger.info("Set initial password untuk token: ...%s", password_data.token[-5:])
     try:
-        updated_user = usersController.set_initial_password(db=db, request=request, password_data=password_data)
-        print(f"[API /set-initial-password] Password set successfully for user: {updated_user.vemail}")
-        return updated_user
+        updated = usersController.set_initial_password(db=db, request=request, password_data=password_data)
+        logger.info("Password awal berhasil diset untuk %s", updated.vemail)
+        return updated
     except ValueError as e:
-        error_detail = str(e)
-        print(f"[API /set-initial-password] Failed: {error_detail}")
-        status_code = status.HTTP_400_BAD_REQUEST
-        if "tidak valid" in error_detail or "kedaluwarsa" in error_detail or "digunakan" in error_detail or "tidak ditemukan" in error_detail:
-            status_code = status.HTTP_404_NOT_FOUND
-        raise HTTPException(status_code=status_code, detail=error_detail)
+        detail = str(e)
+        logger.warning("Set initial password gagal: %s", detail)
+        if any(word in detail for word in ("tidak valid", "kedaluwarsa", "digunakan", "tidak ditemukan")):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
     except Exception as e:
-         print(f"[API /set-initial-password] Unexpected error: {e}")
-         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengatur password.")
+        logger.exception("Unexpected error set initial password: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengatur password.")
 
 
 @router.post("/resend-activation/{user_vcode}", status_code=status.HTTP_200_OK)
 async def resend_user_activation(user_vcode: str, request: Request, db: Session = Depends(get_db)):
-    """Endpoint publik untuk minta kirim ulang email aktivasi."""
-    print(f"[API /resend-activation/{user_vcode}] Request received.")
+    logger.info("Resend aktivasi: %s", user_vcode)
     try:
-        response_message = await usersController.resend_activation_email(
+        msg = await usersController.resend_activation_email(
             db=db, user_vcode=user_vcode, app=request.app, db_factory=SessionLocal
         )
-        print(f"[API /resend-activation/{user_vcode}] Email resent successfully.")
-        return response_message
+        return msg
     except ValueError as e:
-        error_detail = str(e)
-        print(f"[API /resend-activation/{user_vcode}] Failed: {error_detail}")
-        status_code = status.HTTP_400_BAD_REQUEST
-        if "tidak ditemukan" in error_detail:
-             status_code = status.HTTP_404_NOT_FOUND
-        raise HTTPException(status_code=status_code, detail=error_detail)
+        detail = str(e)
+        logger.warning("Resend gagal: %s", detail)
+        status_code_ = status.HTTP_404_NOT_FOUND if "tidak ditemukan" in detail else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code_, detail=detail)
     except Exception as e:
-        print(f"[API /resend-activation/{user_vcode}] Unexpected error: {e}")
+        logger.exception("Unexpected error resend: %s", e)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Gagal mengirim ulang email: {str(e)}")
 
 
 @router.get("/validate-activation-token/{token}")
-def validate_activation_token_endpoint(token: str, db: Session = Depends(get_db)):
-    """Endpoint publik untuk cek validitas token aktivasi (buat UI)."""
-    print(f"[API /validate-activation-token/] Request received for token: {token[:5]}...")
+def validate_activation_token(token: str, db: Session = Depends(get_db)):
+    logger.info("Validasi token aktivasi: ...%s", token[-5:])
     result = usersController.verify_activation_token(db=db, token=token)
     if not result["valid"]:
-        print(f"[API /validate-activation-token/] Token invalid: {result['reason']}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["reason"])
-    print(f"[API /validate-activation-token/] Token valid.")
     return result
 
 
 @router.get("/verify-email-change/{token}", response_model=schema.User)
 def verify_user_email_change(token: str, request: Request, db: Session = Depends(get_db)):
-    """Endpoint publik untuk verifikasi perubahan email via token."""
-    print(f"[API /verify-email-change/] Request received for token: {token[:5]}...")
+    logger.info("Verifikasi email change: ...%s", token[-5:])
     try:
-        updated_user = usersController.verify_and_update_email(db=db, token=token, request=request)
-        print(f"[API /verify-email-change/] Email change verified successfully for user: {updated_user.vemail}")
-        return updated_user
+        updated = usersController.verify_and_update_email(db=db, token=token, request=request)
+        logger.info("Email berhasil diganti untuk %s", updated.vemail)
+        return updated
     except ValueError as e:
-        error_detail = str(e)
-        print(f"[API /verify-email-change/] Failed: {error_detail}")
-        status_code = status.HTTP_400_BAD_REQUEST
-        if "tidak valid" in error_detail or "kedaluwarsa" in error_detail or "digunakan" in error_detail or "tidak ditemukan" in error_detail:
-            status_code = status.HTTP_404_NOT_FOUND
-        raise HTTPException(status_code=status_code, detail=error_detail)
+        detail = str(e)
+        logger.warning("Verifikasi email gagal: %s", detail)
+        if any(word in detail for word in ("tidak valid", "kedaluwarsa", "digunakan", "tidak ditemukan")):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
     except Exception as e:
-         print(f"[API /verify-email-change/] Unexpected error: {e}")
-         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal verifikasi email.")
+        logger.exception("Unexpected error verify email: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal verifikasi email.")
 
-# Endpoint logout (opsional tapi bagus)
+
+# ------------------------------------------------------------------
+# LOGOUT – FIX: tanpa domain agar tidak mismatch
+# ------------------------------------------------------------------
 @router.post("/logout")
-async def logout(response: Response, request: Request, db: Session = Depends(get_db), current_user: models.User = Depends(usersController.get_current_active_user_from_cookie)):
-    """Menghapus cookie access dan refresh token."""
-    print("[API /logout] Logout request received. Deleting token cookies.")
+async def logout(
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(usersController.get_current_active_user_from_cookie),
+):
+    logger.info("Logout request dari %s", current_user.vemail)
+    
+    # Audit log
     try:
         auditLogController.create_security_log(
             db=db, nid_user=current_user.nid, action="LOGOUT", request=request
         )
-        db.commit() # Commit log-nya
+        # Jangan commit dulu, gabung dengan transaksi nonaktifkan token
     except Exception as e:
-        print(f"[AUDIT LOG ERROR] Gagal nyimpen logout log: {e}")
+        logger.exception("Gagal simpan log logout: %s", e)
         db.rollback()
+        # Meskipun gagal log, tetap lanjutkan logout (jangan return error)
 
-    response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
-    response.delete_cookie("refresh_token", path="/users/refresh_token", secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE)
+    # Ambil refresh_token dari cookie untuk menandai session yang akan diakhiri
+    refresh_token_cookie = request.cookies.get("refresh_token")
+    
+    try:
+        # Nonaktifkan semua token session (type 2) milik user ini yang masih aktif
+        db.query(Token).filter(
+            Token.nid_user == current_user.nid,
+            Token.ntoken_type == 2,
+            Token.nstatus == 1
+        ).update(
+            {"nstatus": 0, "dmodified_at": to_wib(datetime.now(JAKARTA_TZ))},
+            synchronize_session=False
+        )
+        # Jika ingin lebih spesifik: hanya nonaktifkan token yang cocok dengan refresh_token,
+        # tapi akan lebih aman matikan semua session user yang aktif.
+        
+        db.commit()
+        logger.info("Token session dinonaktifkan untuk user %s", current_user.vemail)
+    except Exception as e:
+        db.rollback()
+        logger.exception("Gagal nonaktifkan token: %s", e)
+        # Jika gagal, tetap hapus cookie agar user logout di sisi browser
+
+    # Hapus cookie dengan DOMAIN YANG SAMA seperti saat set_cookie
+    # Gunakan COOKIE_DOMAIN (None jika tidak ada env) untuk konsistensi
+    response.delete_cookie(
+        "access_token",
+        path="/",
+        domain=COOKIE_DOMAIN,          # <-- penting
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE
+    )
+    response.delete_cookie(
+        "refresh_token",
+        path="/users/refresh_token",
+        domain=COOKIE_DOMAIN,          # <-- penting
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE
+    )
+
+    logger.info("Cookie auth dihapus untuk user %s", current_user.vemail)
     return {"message": "Logout successful"}
-
 
 @router.post("/activate-account", response_model=schema.User)
 def activate_newly_registered_user(
-    token_data: ActivationToken,
-    request: Request,
-    db: Session = Depends(get_db)
+    token_data: ActivationToken, request: Request, db: Session = Depends(get_db)
 ):
-    """Endpoint publik untuk aktivasi akun yang baru diregistrasi (status 2 -> 1)."""
-    print(f"[API /activate-account] Request aktivasi diterima untuk token: {token_data.token[:5]}...")
+    logger.info("Aktivasi akun baru: ...%s", token_data.token[-5:])
     try:
-        # Panggil controller aktivasi baru kita
-        activated_user = usersController.activate_registered_user(db=db, request=request, token=token_data.token)
-        print(f"[API /activate-account] Akun berhasil diaktivasi untuk: {activated_user.vemail}")
-        return activated_user
+        activated = usersController.activate_registered_user(db=db, request=request, token=token_data.token)
+        logger.info("Akun berhasil diaktivasi: %s", activated.vemail)
+        return activated
     except ValueError as e:
-        error_detail = str(e)
-        print(f"[API /activate-account] Gagal: {error_detail}")
-        status_code = status.HTTP_400_BAD_REQUEST
-        if "tidak valid" in error_detail or "kedaluwarsa" in error_detail or "digunakan" in error_detail or "tidak ditemukan" in error_detail:
-            status_code = status.HTTP_404_NOT_FOUND
-        elif "sudah aktif" in error_detail:
-             status_code = status.HTTP_409_CONFLICT
-        raise HTTPException(status_code=status_code, detail=error_detail)
+        detail = str(e)
+        logger.warning("Aktivasi gagal: %s", detail)
+        if any(word in detail for word in ("tidak valid", "kedaluwarsa", "digunakan", "tidak ditemukan")):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+        if "sudah aktif" in detail:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
     except Exception as e:
-         print(f"[API /activate-account] Unexpected error: {e}")
-         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengaktifkan akun.")
+        logger.exception("Unexpected error aktivasi: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengaktifkan akun.")
+
 
 @router.post("/request-password-reset", status_code=status.HTTP_200_OK)
 async def request_password_reset_endpoint(
-    request_data: RequestPasswordReset, 
-    request: Request,
-    db: Session = Depends(get_db)
+    request_data: RequestPasswordReset, request: Request, db: Session = Depends(get_db)
 ):
-    """Endpoint publik untuk minta kirim email reset password."""
-    print(f"[API /request-password-reset] Request received for email: {request_data.email}")
+    logger.info("Request password reset: %s", request_data.email)
     try:
-        response_message = await usersController.request_password_reset(
-            db=db, 
-            email=request_data.email, 
-            request=request,
-            app=request.app, 
-            db_factory=SessionLocal
+        msg = await usersController.request_password_reset(
+            db=db, email=request_data.email, request=request, app=request.app, db_factory=SessionLocal
         )
-        return response_message
+        return msg
     except Exception as e:
-        print(f"[API /request-password-reset] Unexpected error: {e}")
-        # Tetap return sukses palsu biar aman
+        logger.exception("Unexpected error request reset: %s", e)
+        # Selalu kembalikan pesan generik untuk alasan keamanan
         return {"message": "Jika email Anda terdaftar, instruksi reset password akan dikirim."}
 
+
 @router.get("/validate-reset-token/{token}")
-def validate_reset_token_endpoint(token: str, db: Session = Depends(get_db)):
-    """Endpoint publik untuk cek validitas token reset password (buat UI)."""
-    print(f"[API /validate-reset-token/] Request received for token: {token[:5]}...")
+def validate_reset_token(token: str, db: Session = Depends(get_db)):
+    logger.info("Validasi token reset: ...%s", token[-5:])
     result = usersController.verify_reset_token(db=db, token=token)
     if not result["valid"]:
-        print(f"[API /validate-reset-token/] Token invalid: {result['reason']}")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["reason"])
-    print(f"[API /validate-reset-token/] Token valid.")
     return result
 
+
 @router.post("/reset-password", response_model=schema.User)
-def reset_user_password(password_data: ResetPassword,request: Request, db: Session = Depends(get_db)):
-    """Endpoint publik untuk user set password baru pakai token reset."""
-    print(f"[API /reset-password] Request received for token: {password_data.token[:5]}...")
+def reset_user_password(password_data: ResetPassword, request: Request, db: Session = Depends(get_db)):
+    logger.info("Reset password: ...%s", password_data.token[-5:])
     try:
-        updated_user = usersController.reset_password(db=db, password_data=password_data, request=request)
-        print(f"[API /reset-password] Password reset successfully for user: {updated_user.vemail}")
-        return updated_user
+        updated = usersController.reset_password(db=db, password_data=password_data, request=request)
+        logger.info("Password berhasil direset untuk %s", updated.vemail)
+        return updated
     except ValueError as e:
-        error_detail = str(e)
-        print(f"[API /reset-password] Failed: {error_detail}")
-        status_code = status.HTTP_400_BAD_REQUEST
-        if "tidak valid" in error_detail or "kedaluwarsa" in error_detail or "digunakan" in error_detail or "tidak ditemukan" in error_detail:
-            status_code = status.HTTP_404_NOT_FOUND
-        raise HTTPException(status_code=status_code, detail=error_detail)
+        detail = str(e)
+        logger.warning("Reset password gagal: %s", detail)
+        if any(word in detail for word in ("tidak valid", "kedaluwarsa", "digunakan", "tidak ditemukan")):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
     except Exception as e:
-         print(f"[API /reset-password] Unexpected error: {e}")
-         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengatur password baru.")
-     
-     
+        logger.exception("Unexpected error reset password: %s", e)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Gagal mengatur password baru.")

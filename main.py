@@ -198,6 +198,11 @@ app = FastAPI(
     lifespan=lifespan 
 )
 
+origins = [
+    "http://labfti.umn.ac.id",
+    "https://labfti.umn.ac.id",
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -227,3 +232,5 @@ app.include_router(buildingAPI.router)
 app.include_router(knowledgeBaseAPI.router)
 app.include_router(labArticleAPI.router)
 app.include_router(landingPageAPI.router)
+
+

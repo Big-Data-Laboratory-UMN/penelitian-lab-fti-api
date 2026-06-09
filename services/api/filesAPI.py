@@ -280,7 +280,7 @@ def read_all_files_for_dropdown(
     return files_data
 
 
-@router.get("/{file_id}/raw")
+@router.api_route("/{file_id}/raw", methods=["GET", "HEAD"])
 def get_file_raw(file_id: int, db: Session = Depends(get_db)):
     """
     Serve file content for frontend preview.
