@@ -15,29 +15,32 @@ jakarta_tz = pytz.timezone("Asia/Jakarta")
 Base.metadata.create_all(bind=engine)
 
 BASE_URL_FRONTEND = os.getenv("BASE_URL_FE", "http://localhost:3000")
-
 origins = [
     BASE_URL_FRONTEND,
 ]
+
+# KEAMANAN (VULN-001): matikan dokumentasi API di production.
+# Set ENVIRONMENT=production di file .env server.
+IS_PRODUCTION = os.getenv("ENVIRONMENT", "development").lower() == "production"
+
 
 def check_overdue_bookings_job():
     """
     Fungsi wrapper yg dipanggil scheduler buat cek booking overdue.
     """
-    # Set timezone
     jakarta_tz = pytz.timezone("Asia/Jakarta")
     print(f"\n[CRON JOB RUN] Running check_overdue_bookings_job at {datetime.now(jakarta_tz)}")
-    db = SessionLocal() # Bikin DB session baru
+    db = SessionLocal()
     try:
-        # Panggil fungsi controller yg asli
         result = bookingController.trigger_update_overdue_bookings(db)
         print(f"[CRON JOB SUCCESS] Updated {result.get('updated_count', 0)} bookings.")
     except Exception as e:
         print(f"[CRON JOB FAILED] Error: {e}")
-        db.rollback() # Rollback kalo error
+        db.rollback()
     finally:
-        db.close() # Pastiin session ditutup
+        db.close()
     print("[CRON JOB FINISH] Job finished.")
+
 
 def publish_scheduled_articles_job():
     """
@@ -56,6 +59,7 @@ def publish_scheduled_articles_job():
         db.close()
     print("[CRON JOB FINISH] Job finished.")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     usersController.start_scheduler(app) 
@@ -64,7 +68,6 @@ async def lifespan(app: FastAPI):
     print("[*] Application startup: Initializing state...")
     app.state.lock_dict_lock = asyncio.Lock()
     print("[*] Application state (user_upload_locks, lock_dict_lock) initialized.")
-
     if hasattr(app.state, "scheduler") and app.state.scheduler.running:
         print("Menambahkan job 'check_overdue_bookings_job'...")
         try:
@@ -79,14 +82,13 @@ async def lifespan(app: FastAPI):
             print("✅ Job 'check_overdue_bookings_job' berhasil ditambahkan, akan jalan tiap jam.")
         except Exception as e:
             print(f"❌ GAGAL menambahkan job 'check_overdue_bookings_job': {e}")
-        
-        # Add job for scheduled article publishing
+
         print("Menambahkan job 'publish_scheduled_articles_job'...")
         try:
             app.state.scheduler.add_job(
                 publish_scheduled_articles_job,    
                 'interval',                    
-                minutes=1,  # Check every 1 minute for faster publishing                   
+                minutes=1,                   
                 id="job_publish_scheduled_articles",     
                 replace_existing=True,        
                 misfire_grace_time=60          
@@ -94,28 +96,25 @@ async def lifespan(app: FastAPI):
             print("✅ Job 'publish_scheduled_articles_job' berhasil ditambahkan, akan jalan tiap 1 menit.")
         except Exception as e:
             print(f"❌ GAGAL menambahkan job 'publish_scheduled_articles_job': {e}")
-        
-        # --- STARTUP CHECK: Process and re-schedule existing scheduled articles ---
+
         print("\n[STARTUP] Checking for scheduled articles...")
         startup_db = SessionLocal()
         try:
             now = datetime.now(jakarta_tz).replace(tzinfo=None)
-            
-            # 1. Publish any overdue scheduled articles immediately
+
             overdue_result = labArticleController.publish_scheduled_articles(startup_db)
             if overdue_result.get('updated_count', 0) > 0:
                 print(f"[STARTUP] ✅ Published {overdue_result['updated_count']} overdue articles: {overdue_result['articles']}")
             else:
                 print("[STARTUP] No overdue articles to publish.")
-            
-            # 2. Re-schedule future scheduled articles
+
             from services.models import labArticleModel as articlesModel
             future_articles = startup_db.query(articlesModel.LabArticle).filter(
-                articlesModel.LabArticle.nstatus == 2,  # Scheduled
+                articlesModel.LabArticle.nstatus == 2,
                 articlesModel.LabArticle.dpublished_at != None,
                 articlesModel.LabArticle.dpublished_at > now
             ).all()
-            
+
             scheduled_count = 0
             for article in future_articles:
                 success = labArticleController.schedule_article_publish(
@@ -126,39 +125,36 @@ async def lifespan(app: FastAPI):
                 )
                 if success:
                     scheduled_count += 1
-            
+
             if scheduled_count > 0:
                 print(f"[STARTUP] ✅ Re-scheduled {scheduled_count} future articles.")
             else:
                 print("[STARTUP] No future scheduled articles to re-schedule.")
-                
+
         except Exception as e:
             print(f"[STARTUP] ❌ Error during startup article check: {e}")
         finally:
             startup_db.close()
         print("[STARTUP] Article scheduling check complete.\n")
-        
-        # --- STARTUP CHECK: Process and re-schedule approved bookings ---
+
         print("[STARTUP] Checking for approved bookings to expire...")
         booking_startup_db = SessionLocal()
         try:
             now = datetime.now(jakarta_tz).replace(tzinfo=None)
-            
-            # 1. Expire any overdue approved bookings immediately
+
             overdue_result = bookingController.trigger_update_overdue_bookings(booking_startup_db)
             if overdue_result.get('updated_count', 0) > 0:
                 print(f"[STARTUP] ✅ Expired {overdue_result['updated_count']} overdue bookings.")
             else:
                 print("[STARTUP] No overdue bookings to expire.")
-            
-            # 2. Re-schedule future approved bookings
+
             from services.models.bookingModel import Booking as BookingModel
             future_bookings = booking_startup_db.query(BookingModel).filter(
-                BookingModel.nstatus == 1,  # Approved
+                BookingModel.nstatus == 1,
                 BookingModel.dend != None,
                 BookingModel.dend > now
             ).all()
-            
+
             scheduled_booking_count = 0
             for booking in future_bookings:
                 success = bookingController.schedule_booking_expiration(
@@ -169,12 +165,12 @@ async def lifespan(app: FastAPI):
                 )
                 if success:
                     scheduled_booking_count += 1
-            
+
             if scheduled_booking_count > 0:
                 print(f"[STARTUP] ✅ Re-scheduled {scheduled_booking_count} future booking expirations.")
             else:
                 print("[STARTUP] No future approved bookings to re-schedule.")
-                
+
         except Exception as e:
             print(f"[STARTUP] ❌ Error during startup booking check: {e}")
         finally:
@@ -182,9 +178,7 @@ async def lifespan(app: FastAPI):
         print("[STARTUP] Booking expiration check complete.\n")
     else:
         print("⚠️ PERINGATAN: Scheduler tidak berjalan, job 'check_overdue_bookings' tidak bisa ditambahkan.")
-
     yield 
-
     print("[*] Application shutdown: Cleaning up...")
     if hasattr(app.state, "scheduler") and app.state.scheduler.running:
         app.state.scheduler.shutdown(wait=False)
@@ -195,7 +189,11 @@ app = FastAPI(
     title="FTI Lab Booking API",
     description="API untuk sistem peminjaman ruangan lab di FTI.",
     version="1.0.0",
-    lifespan=lifespan 
+    lifespan=lifespan,
+    # KEAMANAN (VULN-001): dokumentasi mati di production, nyala saat development
+    docs_url=None if IS_PRODUCTION else "/docs",
+    redoc_url=None if IS_PRODUCTION else "/redoc",
+    openapi_url=None if IS_PRODUCTION else "/openapi.json",
 )
 
 origins = [
@@ -210,6 +208,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.get("/", tags=["Root"])
 def root():
@@ -232,5 +231,3 @@ app.include_router(buildingAPI.router)
 app.include_router(knowledgeBaseAPI.router)
 app.include_router(labArticleAPI.router)
 app.include_router(landingPageAPI.router)
-
-
