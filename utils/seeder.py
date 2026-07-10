@@ -12,19 +12,34 @@ from services.models import (
     Role,
     Files,
     Facility,
+    Building,
     Lab,
     Department,
     DepartmentLab,
     LabFacility,
     User,
-    UserAccess,
-    Building
+    UserAccess
 )
 
 def seed_data():
     db = SessionLocal()
 
     try:
+        # === SEED BUILDING ===
+        if db.query(Building).count() == 0:
+            print("Tabel 'tblm_building' kosong, memulai proses seeding...")
+            building_to_seed = [
+                {'vcode': 'A', 'vname': 'Building A', 'vdesc': 'Building A', 'vcreated_by': 'system-migration'},
+                {'vcode': 'B', 'vname': 'Building B', 'vdesc': 'Building B', 'vcreated_by': 'system-migration'},
+                {'vcode': 'C', 'vname': 'Building C', 'vdesc': 'Building C', 'vcreated_by': 'system-migration'},
+                {'vcode': 'D', 'vname': 'Building D', 'vdesc': 'Building D', 'vcreated_by': 'system-migration'},
+            ]
+            db.add_all([Building(**building) for building in building_to_seed])
+            db.commit()
+            print("✅ Seeding berhasil 'tblm_building'")
+        else:
+            print("⏭️  Data sudah ada di tabel 'tblm_building'.")
+
         # === SEED LABS ===
         if db.query(Lab).count() == 0:
             print("Tabel 'tblm_lab' kosong, memulai proses seeding...")
@@ -41,8 +56,7 @@ def seed_data():
             print("✅ Seeding berhasil 'tblm_lab'")
         else:
             print("⏭️  Data sudah ada di tabel 'tblm_lab'.")
-        
-        # [FIX] Blok 'SEED LABS' yang duplikat dihapus
+    
 
         # === SEED DEPARTMENTS ===
         if db.query(Department).count() == 0:
@@ -99,22 +113,6 @@ def seed_data():
             print("✅ Seeding berhasil 'tblm_roles'")
         else:
             print("⏭️  Data sudah ada di tabel 'tblm_roles'.")
-        
-        # === SEED BUILDING ===
-        if db.query(Building).count() == 0:
-            print("Tabel 'tblm_building' kosong, memulai proses seeding...")
-            building_to_seed = [
-                {'vcode': 'A', 'vname': 'Building A', 'vdesc': 'Building A', 'vcreated_by': 'system-migration'},
-                {'vcode': 'B', 'vname': 'Building B', 'vdesc': 'Building B', 'vcreated_by': 'system-migration'},
-                {'vcode': 'C', 'vname': 'Building C', 'vdesc': 'Building C', 'vcreated_by': 'system-migration'},
-                {'vcode': 'D', 'vname': 'Building D', 'vdesc': 'Building D', 'vcreated_by': 'system-migration'},
-            ]
-            db.add_all([Building(**building) for building in building_to_seed])
-            db.commit()
-            print("✅ Seeding berhasil 'tblm_building'")
-        else:
-            print("⏭️  Data sudah ada di tabel 'tblm_building'.")
-
 
         # === SEED USERS ===
         if db.query(User).count() == 0:
